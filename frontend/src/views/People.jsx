@@ -26,6 +26,23 @@ const HEADLINE_OPTIONS = [
   "RCM Analyst",
 ];
 
+const PLATFORM_OPTIONS = [
+  "",
+  "Indeed",
+  "ZipRecruiter",
+  "LinkedIn",
+  "Monster",
+  "Jobright.ai",
+  "Glassdoor",
+  "Hiring Cafe",
+  "Dice",
+  "Direct website",
+  "AAPC Job Board",
+  "SimplyHired",
+  "CareerBuilder",
+  "Other",
+];
+
 export default function People() {
   const [people, setPeople] = useState([]);
   const [profiles, setProfiles] = useState([]);
@@ -200,8 +217,13 @@ export default function People() {
               <option key={label} value={label}>{label}</option>
             ))}
           </select>
-          <input placeholder="Platform (optional)" value={profile.platform} style={{ width: 150 }}
-                 onChange={(e) => setProfile({ ...profile, platform: e.target.value })} />
+          <select value={profile.platform} style={{ width: 170 }}
+                  onChange={(e) => setProfile({ ...profile, platform: e.target.value })}>
+            <option value="">— platform —</option>
+            {PLATFORM_OPTIONS.filter(Boolean).map((label) => (
+              <option key={label} value={label}>{label}</option>
+            ))}
+          </select>
           <input placeholder="Developer email (optional)" type="email" value={profile.email}
                  style={{ minWidth: 180 }}
                  onChange={(e) => setProfile({ ...profile, email: e.target.value })} />

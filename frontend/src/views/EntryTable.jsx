@@ -2,10 +2,26 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { Loading } from "./widgets.jsx";
 
+const PLATFORM_OPTIONS = [
+  "Indeed",
+  "ZipRecruiter",
+  "LinkedIn",
+  "Monster",
+  "Jobright.ai",
+  "Glassdoor",
+  "Hiring Cafe",
+  "Dice",
+  "Direct website",
+  "AAPC Job Board",
+  "SimplyHired",
+  "CareerBuilder",
+  "Other",
+];
+
 const COLUMNS = [
   { key: "url", label: "Job link", width: "26%", hint: "https://…" },
   { key: "title", label: "Job title", width: "20%", hint: "" },
-  { key: "company", label: "Client", width: "14%", hint: "" },
+  { key: "company", label: "Company", width: "14%", hint: "" },
   // Where the posting is written out, when that is not the apply link. The
   // apply link is usually dead three weeks later — an expired posting
   // redirects to a board's home page and takes the wording with it — and this
@@ -155,26 +171,50 @@ export default function EntryTable({ batchId, profileId, profileName, onSaved })
             {rows.map((row, index) => (
               <tr key={index}>
                 <td className="mono muted" style={{ textAlign: "right" }}>{index + 1}</td>
-                {COLUMNS.map((c) => (
-                  <td key={c.key} style={{ padding: 3 }}>
-                    <input
-                      id={`cell-${index}-${c.key}`}
-                      value={row[c.key] || ""}
-                      placeholder={c.hint}
-                      title={c.key === "date" ? "Stamped automatically. Edit if you are backfilling." : undefined}
-                      style={{ width: "100%", border: "1px solid transparent", background: "none",
-                               fontFamily: c.key === "date" ? "var(--mono)" : undefined,
-                               fontSize: c.key === "date" ? 12 : undefined,
-                               color: c.key === "date" ? "var(--slate)" : undefined }}
-                      onChange={(e) => edit(index, c.key, e.target.value)}
-                      onPaste={(e) => onPaste(index, c.key, e)}
-                      onBlur={() => save(rows)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && index === rows.length - 1) addRow();
-                      }}
-                    />
-                  </td>
-                ))}
+                {COLUMNS.map((c) => {
+                  const isPlatform = c.key === "platform";
+                  const platformValue = isPlatform
+                    ? (PLATFORM_OPTIONS.includes(row.platform) ? row.platform : (row.platform ? "Other" : ""))
+                    : row[c.key] || "";
+                  return (
+                    <td key={c.key} style={{ padding: 3 }}>
+                      {isPlatform ? (
+                        <select
+                          id={`cell-${index}-${c.key}`}
+                          value={platformValue}
+                          style={{ width: "100%", border: "1px solid transparent", background: "none" }}
+                          onChange={(e) => edit(index, c.key, e.target.value)}
+                          onBlur={() => save(rows)}
+                        >
+                          <option value="">— select —</option>
+                          {PLATFORM_OPTIONS.map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                          {row.platform && !PLATFORM_OPTIONS.includes(row.platform) && (
+                            <option value={row.platform}>{row.platform}</option>
+                          )}
+                        </select>
+                      ) : (
+                        <input
+                          id={`cell-${index}-${c.key}`}
+                          value={row[c.key] || ""}
+                          placeholder={c.hint}
+                          title={c.key === "date" ? "Stamped automatically. Edit if you are backfilling." : undefined}
+                          style={{ width: "100%", border: "1px solid transparent", background: "none",
+                                   fontFamily: c.key === "date" ? "var(--mono)" : undefined,
+                                   fontSize: c.key === "date" ? 12 : undefined,
+                                   color: c.key === "date" ? "var(--slate)" : undefined }}
+                          onChange={(e) => edit(index, c.key, e.target.value)}
+                          onPaste={(e) => onPaste(index, c.key, e)}
+                          onBlur={() => save(rows)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && index === rows.length - 1) addRow();
+                          }}
+                        />
+                      )}
+                    </td>
+                  );
+                })}
                 <td style={{ textAlign: "center", padding: 3 }}>
                   <button className="link" title="Remove this row"
                           onClick={() => removeRow(index)}>&times;</button>

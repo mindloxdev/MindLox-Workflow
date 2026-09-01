@@ -1352,11 +1352,11 @@ def _row_json(a: Assignment, j: Job, found_by: Optional[list[str]] = None) -> di
 
 def _found_by(db: Session, job_ids: Iterable[int],
               exclude: Optional[int] = None) -> dict[int, list[str]]:
-    """Which profiles have already applied to each of these jobs.
+    """Which BDs have already applied to each of these jobs.
 
-    One query for the whole list rather than one per row. `exclude` drops the
-    profile being shown the list — it is on there precisely because that
-    profile has *not* applied, so naming it would be nonsense.
+    The screen is about who actually applied, not the profile label they used.
+    `exclude` drops the profile being shown the list — it is on there precisely
+    because that profile has *not* applied, so naming it would be nonsense.
     """
     ids = [job_id for job_id in job_ids]
     if not ids:
@@ -1364,10 +1364,11 @@ def _found_by(db: Session, job_ids: Iterable[int],
     out: dict[int, list[str]] = defaultdict(list)
     for chunk in _chunks(ids):
         for job_id, name, profile_id in db.execute(
-            select(Application.job_id, Profile.name, Profile.id)
+            select(Application.job_id, func.coalesce(User.name, Profile.name), Application.profile_id)
             .join(Profile, Profile.id == Application.profile_id)
+            .outerjoin(User, User.id == Application.user_id)
             .where(Application.job_id.in_(chunk))
-            .order_by(Profile.name)
+            .order_by(func.coalesce(User.name, Profile.name))
         ).all():
             if profile_id != exclude:
                 out[job_id].append(name)

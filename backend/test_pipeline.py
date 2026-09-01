@@ -156,6 +156,21 @@ def test_the_record_holds_everything_applied_for(client, bd, applied):
     assert {"job_id", "profile", "title", "company", "url", "description_url"} <= set(row)
 
 
+def test_found_by_uses_bd_names_not_profile_names(client, admin, bd, other_bd, make_profile):
+    """A row should call out the people who applied, not the profile label they used."""
+    mine = make_profile(bd_email="dv-bd@developer.example.com")
+    theirs = make_profile(bd_email="dv-other@developer.example.com")
+    batch = cycle(client, admin, f"FoundBy{next(_serial)}")
+    hand_in(client, batch, bd, mine["id"], sheet(range(820, 826)))
+    hand_in(client, batch, other_bd, theirs["id"], sheet(range(820, 826), "Northwind Digital"))
+    client.post(f"/api/batches/{batch}/compute", headers=admin)
+
+    jobs = client.get(f"/api/batches/{batch}/profiles/{mine['id']}/sheet", headers=bd).json()["jobs"]
+    found = {name for row in jobs for name in row["found_by"]}
+    assert "Otto Other" in found
+    assert "Behind" not in " ".join(found)
+
+
 def test_the_record_is_searched_by_anything_pasted_out_of_an_email(client, bd, applied):
     """A person pasting out of a client's email has no idea which field the
     thing they copied lives in, so all of them are searched."""

@@ -9,7 +9,7 @@ import { Availability, CopyButton, Empty, Segment, Skills } from "./widgets.jsx"
 const FIELD_LABELS = {
   url: "Job link",
   title: "Job title",
-  company: "Client or company",
+  company: "Company",
   platform: "Platform",
   date: "Applied on",
   // Where the posting is written out, when that is not the apply link. The
@@ -345,7 +345,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
             value={tab}
             onChange={setTab}
             items={[
-              { key: "applied", label: "Applied", count: handedIn },
+              { key: "applied", label: "Own jobs", count: handedIn },
               { key: "new", label: "New jobs", count: sheet.length },
               { key: "record", label: "All jobs" },
               { key: "interviews", label: "Interviews",
@@ -381,7 +381,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
           {tab === "applied" && (
             <section className="stack" style={{ gap: 10 }}>
               <div>
-                <h2>Jobs {profile?.name} applied to</h2>
+                <h2>Own jobs for {profile?.name}</h2>
                 <p className="hint" style={{ marginTop: 3 }}>
                   Hand these in so nobody is sent what this profile already used.
                 </p>
@@ -535,15 +535,14 @@ export default function BdHome({ pane = null, onPaneSeen }) {
 
                   {needle && visible.length === 0 ? (
                     <div className="card pad muted">
-                      Nothing on this list matches “{filter}”. The names under <b>Found by</b> are
-                      profiles, not people — try the profile name a colleague applies under.
+                      Nothing on this list matches “{filter}”. Try a colleague's name, a client, or a platform.
                     </div>
                   ) : (
                   <div className="card scroll">
                     <table>
                       <thead>
                         <tr>
-                          <th>Job</th><th>Client</th><th>Found by</th><th>Platform</th>
+                          <th>Job</th><th>Company</th><th>Found by</th><th>Platform</th>
                           <th style={{ minWidth: 220 }}>Link</th><th>Status</th>
                         </tr>
                       </thead>
