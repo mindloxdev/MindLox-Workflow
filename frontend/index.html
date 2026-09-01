@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dispatch</title>
+    <meta name="description" content="One cycle, one list per profile, no two people applying to the same job." />
+    <!-- Follows the theme, so the browser paints its own chrome to match
+         instead of flashing white behind a dark page. -->
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- Inter, three weights, latin only, and `swap` so text paints in the
+         system font immediately and reflows once rather than sitting blank.
+         Numbers use the system mono, which is already in memory — a slow font
+         never holds up a figure somebody is waiting to read. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <script>
+      /* The theme, before the first paint.
+       *
+       * Inline and synchronous on purpose. Reading this in React would mean
+       * one frame of the wrong theme on every load — the white flash that
+       * gives away a dark mode bolted on afterwards. Nine lines here buys a
+       * correct first paint, so it stays in the HTML.
+       *
+       * No stored choice means "follow the system", and the stylesheet
+       * handles that on its own through prefers-color-scheme. */
+      try {
+        var saved = localStorage.getItem("dispatch.theme");
+        if (saved === "dark" || saved === "light") {
+          document.documentElement.setAttribute("data-theme", saved);
+        }
+      } catch (e) {
+        /* private window, or site data blocked — the system setting stands */
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

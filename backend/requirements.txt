@@ -1,0 +1,21 @@
+# Lower bounds, not exact pins. The packages with compiled wheels (pandas,
+# rapidfuzz, bcrypt, psycopg2) only publish for Python versions that existed
+# when they were released, so a hard pin means a newer interpreter tries to
+# build them from source and fails. Upper bounds stop at the next major.
+fastapi>=0.115.6,<1.0
+uvicorn[standard]>=0.34.0,<1.0
+sqlalchemy>=2.0.36,<3.0
+pydantic>=2.10.4,<3.0
+# Required by pydantic's EmailStr, which the login and user routes both use.
+# Without it the app raises on import, before it can serve anything.
+email-validator>=2.2.0,<3.0
+python-multipart>=0.0.20
+PyJWT>=2.10.1,<3.0
+bcrypt>=4.2.1,<6.0
+pandas>=2.2.3,<4.0
+openpyxl>=3.1.5,<4.0
+rapidfuzz>=3.11.0,<4.0
+psycopg2-binary>=2.9.10,<3.0
+# Windows ships no timezone database, so zoneinfo cannot resolve
+# America/New_York without this. Harmless on Linux, which already has one.
+tzdata>=2024.1
