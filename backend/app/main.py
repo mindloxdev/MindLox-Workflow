@@ -1339,11 +1339,13 @@ def report(batch_id: int, db: Session = Depends(get_db), _: User = Depends(admin
     matrix = matching.overlap_matrix(
         [{"applied_by": v} for v in applied_by.values()], participants)
 
-    counts = dict(db.execute(
-        select(Assignment.profile_id, func.count(Assignment.id))
+    counts = defaultdict(lambda: defaultdict(int))
+    for profile_id, status, count in db.execute(
+        select(Assignment.profile_id, Assignment.status, func.count(Assignment.id))
         .where(Assignment.batch_id == batch_id)
-        .group_by(Assignment.profile_id)
-    ).all())
+        .group_by(Assignment.profile_id, Assignment.status)
+    ).all():
+        counts[profile_id][status] = count
 
     hit_twice = [job_id for job_id, pids in applied_by.items() if len(pids) > 1]
     jobs: dict[int, Job] = {}
