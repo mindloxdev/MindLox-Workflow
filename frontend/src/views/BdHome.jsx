@@ -160,7 +160,15 @@ export default function BdHome({ pane = null, onPaneSeen }) {
         .map((r) => (r.id === assignmentId ? { ...r, status } : r)),
     }));
     try {
-      await api.setStatus(assignmentId, status);
+      const saved = await api.setStatus(assignmentId, status);
+      setSheets((all) => ({
+        ...all,
+        [profileId]: (all[profileId] || []).map((r) => (
+          r.id === assignmentId
+            ? { ...r, applied_on: saved.applied_on || r.applied_on || "" }
+            : r
+        )),
+      }));
     } catch (err) {
       setNote({ bad: true, text: err.message });
     }
@@ -175,11 +183,19 @@ export default function BdHome({ pane = null, onPaneSeen }) {
   // land well for this profile — or badly — wants that run of jobs together,
   // and a tag you can read but not filter on cannot answer that.
   const needle = filter.trim().toLowerCase();
+  const orderedSheet = [...sheet].sort((left, right) => {
+    if (left.applied_on && right.applied_on) {
+      return right.applied_on.localeCompare(left.applied_on);
+    }
+    if (left.applied_on) return -1;
+    if (right.applied_on) return 1;
+    return (left.title || "").localeCompare(right.title || "");
+  });
   const visible = needle
-    ? sheet.filter((job) => [job.title, job.company, job.platform, job.url,
+    ? orderedSheet.filter((job) => [job.title, job.company, job.platform, job.url,
                              (job.found_by || []).join(" ")]
         .some((field) => (field || "").toLowerCase().includes(needle)))
-    : sheet;
+    : orderedSheet;
 
   if (!profiles.length) {
     return (
@@ -543,7 +559,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                     <table>
                       <thead>
                         <tr>
-                          <th>Job</th><th>Company</th><th>Found by</th><th>Platform</th>
+                          <th>Job</th><th>Company</th><th>Found by</th><th>Platform</th><th>Applied on</th>
                           <th style={{ minWidth: 220 }}>Link</th><th>Status</th>
                         </tr>
                       </thead>
@@ -576,6 +592,9 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                               ) : <span className="muted">—</span>}
                             </td>
                             <td className="muted">{job.platform || "—"}</td>
+                            <td className="mono muted" style={{ whiteSpace: "nowrap", fontSize: 12 }}>
+                              {job.applied_on || "—"}
+                            </td>
                             <td>
                               {/* The link itself, not the word "open" over the top of it.
                                   A BD decides whether a posting is worth their time from

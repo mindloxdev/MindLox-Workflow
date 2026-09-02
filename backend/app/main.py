@@ -1364,10 +1364,12 @@ def report(batch_id: int, db: Session = Depends(get_db), _: User = Depends(admin
 # Assignments
 # --------------------------------------------------------------------------- #
 
-def _row_json(a: Assignment, j: Job, found_by: Optional[list[str]] = None) -> dict:
+def _row_json(a: Assignment, j: Job, found_by: Optional[list[str]] = None,
+                            applied_on: str = "") -> dict:
     return {"id": a.id, "job_id": j.id, "status": a.status, "title": j.title,
             "company": j.company, "platform": j.platform, "url": j.url,
             "description_url": j.description_url or "",
+                        "applied_on": applied_on,
             # Which profiles already applied to this one. It is why the job is
             # on this list at all — somebody else found it — and a BD reading
             # "found by Faizan" knows whose search to ask about when a whole
@@ -1409,13 +1411,17 @@ def _assignment_rows(db: Session, batch_id: int, profile_id: int) -> list[dict]:
     past. What stays is what there is still something to do about.
     """
     rows = db.execute(
-        select(Assignment, Job).join(Job, Job.id == Assignment.job_id)
+        select(Assignment, Job, Application.applied_on)
+        .join(Job, Job.id == Assignment.job_id)
+        .outerjoin(Application, (Application.job_id == Assignment.job_id)
+                   & (Application.profile_id == Assignment.profile_id))
         .where(Assignment.batch_id == batch_id, Assignment.profile_id == profile_id,
                Assignment.status != "skipped")
         .order_by(Job.company, Job.title)
     ).all()
-    sources = _found_by(db, [j.id for _, j in rows], exclude=profile_id)
-    return [_row_json(a, j, sources.get(j.id)) for a, j in rows]
+    sources = _found_by(db, [j.id for _, j, _ in rows], exclude=profile_id)
+    return [_row_json(a, j, sources.get(j.id), applied_on or "")
+            for a, j, applied_on in rows]
 
 
 def _all_assignment_rows(db: Session, batch_id: int) -> dict[int, list[dict]]:
@@ -1563,7 +1569,11 @@ def set_status(assignment_id: int, body: StatusIn, db: Session = Depends(get_db)
                                user_id=row.user_id, batch_id=row.batch_id,
                                applied_on=applied_stamp()))
     db.commit()
-    return {"ok": True, "status": row.status}
+    application = db.scalar(select(Application).where(
+        Application.job_id == row.job_id,
+        Application.profile_id == row.profile_id))
+    return {"ok": True, "status": row.status,
+            "applied_on": application.applied_on if application else ""}
 
 
 # --------------------------------------------------------------------------- #
