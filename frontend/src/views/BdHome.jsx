@@ -177,13 +177,14 @@ export default function BdHome({ pane = null, onPaneSeen }) {
   const headers = upload?.headers || [];
   const done = sheet.filter((j) => j.status === "applied").length;
   const handedIn = upload?.row_count || 0;
+  const newJobs = sheet.filter((j) => j.status !== "applied");
 
   // What the filter box matches. `found_by` is in here because it is the whole
   // reason the tag exists: a BD who has learned that a colleague's searches
   // land well for this profile — or badly — wants that run of jobs together,
   // and a tag you can read but not filter on cannot answer that.
   const needle = filter.trim().toLowerCase();
-  const orderedSheet = [...sheet].sort((left, right) => {
+  const orderedSheet = [...newJobs].sort((left, right) => {
     if (left.applied_on && right.applied_on) {
       return right.applied_on.localeCompare(left.applied_on);
     }
@@ -506,12 +507,14 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                 <div>
                   <h2>New jobs for {profile?.name}{profile?.headline ? ` · ${profile.headline}` : ""}</h2>
                   <p className="muted" style={{ marginTop: 3 }}>
-                    {sheet.length
-                      ? `${sheet.length} jobs ${profile?.name} has never applied to, ${done} marked applied.`
-                      : "Nothing yet — your manager builds the lists once everyone has handed in."}
+                    {newJobs.length
+                      ? `${newJobs.length} jobs ${profile?.name} has never applied to, ${done} moved to All jobs.`
+                      : done
+                        ? `${done} job${done === 1 ? "" : "s"} moved to All jobs.`
+                        : "Nothing yet — your manager builds the lists once everyone has handed in."}
                   </p>
                 </div>
-                {sheet.length > 0 && (
+                {newJobs.length > 0 && (
                   <button className="go" onClick={() =>
                     download(`/batches/${batchId}/profiles/${profileId}/sheet.xlsx`, "new-jobs.xlsx")
                       .catch((err) => setNote({ bad: true, text: err.message }))}>
@@ -520,9 +523,11 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                 )}
               </div>
 
-              {sheet.length === 0 ? (
+              {newJobs.length === 0 ? (
                 <div className="notice">
-                  {batch.status !== "open"
+                  {done
+                    ? "All jobs from this list have been moved to All jobs."
+                    : batch.status !== "open"
                     ? "Nothing was dispatched to this profile in this cycle."
                     : batch.auto_build_minutes
                       ? `This cycle is still open. The lists rebuild every ${batch.auto_build_minutes} minutes once at least two profiles have handed in — yours will appear here on its own.`
@@ -541,8 +546,8 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                     <div className="row" style={{ alignItems: "flex-end", gap: 8 }}>
                       <span className="muted">
                         {needle
-                          ? `${visible.length} of ${sheet.length} shown`
-                          : `${sheet.length} on the list`}
+                          ? `${visible.length} of ${newJobs.length} shown`
+                          : `${newJobs.length} on the list`}
                       </span>
                       {needle && (
                         <button className="link" onClick={() => setFilter("")}>clear</button>
