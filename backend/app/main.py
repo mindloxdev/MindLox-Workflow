@@ -446,6 +446,7 @@ class EntryIn(BaseModel):
     platform: str = ""
     date: str = ""
     description_url: str = ""
+    headline: str = ""
 
 
 class EntriesIn(BaseModel):
@@ -825,9 +826,9 @@ def set_mapping(upload_id: int, body: MappingIn, db: Session = Depends(get_db),
 # Column names used when a profile's sheet is typed rather than uploaded. The
 # mapping is then the identity, so hand-entered and uploaded sheets travel
 # through exactly the same code from here on.
-TYPED_HEADERS = {"url": "Job link", "title": "Job title", "company": "Client",
+TYPED_HEADERS = {"url": "Job link", "title": "Job title", "company": "Company",
                  "platform": "Platform", "date": "Applied on",
-                 "description_url": "Job description link"}
+                 "description_url": "Job description link", "headline": "Headline"}
 
 
 @app.get("/api/batches/{batch_id}/profiles/{profile_id}/entries")
@@ -839,6 +840,7 @@ def list_entries(batch_id: int, profile_id: int, db: Session = Depends(get_db),
     if not upload:
         return {"rows": [], "filename": None, "row_count": 0, "typed": True}
     rows = ingest.project_rows(upload.rows or [], upload.mapping or {})
+    rows = [{**row, "headline": profile.headline or ""} for row in rows]
     return {"rows": rows, "filename": upload.filename, "row_count": len(rows),
             "typed": (upload.mapping or {}) == TYPED_HEADERS}
 
@@ -868,7 +870,9 @@ def save_entries(batch_id: int, profile_id: int, body: EntriesIn,
         record = {"url": ingest.safe_url(entry.url), "title": entry.title.strip(),
                   "company": entry.company.strip(), "platform": entry.platform.strip(),
                   "date": entry.date.strip(),
-                  "description_url": ingest.safe_url(entry.description_url)}
+                  "description_url": ingest.safe_url(entry.description_url),
+                  # Applications always belong to the profile's headline.
+                  "headline": profile.headline.strip()}
         # Judge on the fields that identify a job. The timestamp is stamped for
         # the user the moment they add a row, so every untouched row carries one
         # — counting it would file a blank row as work.
@@ -990,11 +994,18 @@ def build_lists(db: Session, batch: Batch) -> dict:
         db.add_all(fresh)
         db.flush()
 
+    all_profiles = {p.id: p for p in db.scalars(
+        select(Profile).where(Profile.is_active == True)).all()}  # noqa: E712
     applied_by: dict[int, set[int]] = {}
+    headline_by_job: dict[int, set[str]] = defaultdict(set)
     applied_on: dict[tuple[int, int], str] = {}
     for record in records:
         job = seen[record["fp"]]
         applied_by.setdefault(job.id, set()).add(record["profile_id"])
+        headline = (all_profiles.get(record["profile_id"]).headline
+                if record["profile_id"] in all_profiles else "")
+        if headline:
+            headline_by_job[job.id].add(headline)
         stamp = (record.get("date") or "").strip()
         if stamp:
             applied_on.setdefault((job.id, record["profile_id"]), stamp[:40])
@@ -1036,8 +1047,6 @@ def build_lists(db: Session, batch: Batch) -> dict:
     # they contributed nothing to it, and their own history still blocks
     # anything they have already applied to — a late joiner is given jobs, not
     # given away.
-    all_profiles = {p.id: p for p in db.scalars(
-        select(Profile).where(Profile.is_active == True)).all()}  # noqa: E712
     joined: list[int] = []
     if handed_in:
         joined = matching.similar_profiles(
@@ -1059,6 +1068,19 @@ def build_lists(db: Session, batch: Batch) -> dict:
     ).all() if participants else []
 
     pool_ids = {job.id for job in seen.values()} | {job_id for job_id, _ in carried}
+
+    # Carried jobs were not present in this cycle's sheets, so recover their
+    # market from the profiles that originally applied to them.
+    carried_ids = pool_ids - set(seen)
+    if carried_ids:
+        for chunk in _chunks(carried_ids):
+            for job_id, profile_id in db.execute(
+                select(Application.job_id, Application.profile_id)
+                .where(Application.job_id.in_(chunk))
+            ).all():
+                headline = all_profiles.get(profile_id).headline if profile_id in all_profiles else ""
+                if headline:
+                    headline_by_job[job_id].add(headline)
 
     # 5. What each profile may NOT be given: anything it has already applied to
     #    (all-time), and anything it looked at and skipped. Note this is per
@@ -1083,9 +1105,12 @@ def build_lists(db: Session, batch: Batch) -> dict:
         for job in db.scalars(select(Job).where(Job.id.in_(chunk))):
             job_rows[job.id] = job
 
+    headline_by_profile = {pid: (profile.headline or "") for pid, profile in all_profiles.items()}
     pool = [
         {"job_id": job_id, "company_key": job_rows[job_id].company_key or "",
-         "blocked_for": blocked.get(job_id, set())}
+         "blocked_for": blocked.get(job_id, set()),
+         "headlines": headline_by_job.get(job_id, set()),
+         "headline_by_profile": headline_by_profile}
         for job_id in sorted(pool_ids) if job_id in job_rows
     ]
 

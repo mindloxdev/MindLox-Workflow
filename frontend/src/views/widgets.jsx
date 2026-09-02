@@ -222,7 +222,7 @@ export function RangeReport({ report, show = "all", whose = "your" }) {
                 <table className="board">
                   <thead>
                     <tr>
-                      <th>Client</th>
+                      <th>Company</th>
                       <th>Role</th>
                       <th>Got to</th>
                       <th>How it ended</th>
@@ -852,7 +852,7 @@ export function InterviewRows({ rows, showProfile = true, onChange, onRemove,
           <tr>
             <th style={{ width: 128 }}>When · ET</th>
             {showProfile && <th>Applied as</th>}
-            <th>Client</th>
+            <th>Company</th>
             <th>Role</th>
             <th>How</th>
             <th style={{ width: 130 }}>Round</th>
@@ -1091,7 +1091,7 @@ export function WaitingOnTime({ rows, onChange, onRemove, suggested }) {
       <table className="board">
         <thead>
           <tr>
-            <th>Client</th>
+            <th>Company</th>
             <th>Role</th>
             {/* Everything the record already knows about the posting they
                 replied about. Without it this table is four words a colleague
@@ -1263,7 +1263,7 @@ export function AssessmentBoard({ data, onOpen, heading = "Take-homes and tests"
             <thead>
               <tr>
                 <th>What</th>
-                <th>Client</th>
+                <th>Company</th>
                 <th>Applied as</th>
                 <th style={{ width: 150 }}>Due · ET</th>
                 <th style={{ width: 120 }}>How far along</th>
@@ -1348,7 +1348,7 @@ export function Stalled({ rows, onNextRound, limit = 6 }) {
           <thead>
             <tr>
               <th style={{ width: 128 }}>Last round</th>
-              <th>Client</th>
+              <th>Company</th>
               <th>Role</th>
               <th>Applied as</th>
               <th />

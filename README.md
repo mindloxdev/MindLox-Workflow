@@ -2,7 +2,8 @@
 
 Your team hands in the sheet of jobs each profile applied to. The system works
 out which postings are the same job across every sheet, shows you how much
-effort was spent twice, and gives each profile back the jobs it has never tried.
+effort was spent twice, and gives each profile back the jobs it has never tried
+within the same headline market.
 
 Then it follows what all that typing turned into: who is interviewing today,
 who is free to take work, and how much of it ended in an offer.
@@ -47,6 +48,9 @@ person. All history — what has been applied to, what has been dispatched —
 belongs to the **profile**, because that is what the client recognises.
 
 Two profiles sharing a headline is not a problem to solve. It is the normal case.
+Profiles with different headlines are kept in separate dispatch markets: a VA
+profile receives VA new jobs, while an Accounts Receivable profile receives
+Accounts Receivable new jobs.
 
 ---
 
@@ -186,7 +190,7 @@ confirmation and an extra step is one somebody forgets.
 
 The whole posting travels with it, not a useful-looking subset:
 
-| Job title | Client | Job link | Description link | Platform | Applied on |
+| Job title | Company | Job link | Description link | Platform | Applied on | Headline |
 |---|---|---|---|---|---|
 
 Those six are what a BD has in front of them when they answer the email, and
@@ -357,7 +361,9 @@ the half somebody is asked about at the end of a quarter.
    **applied** or **skipped** keep their place and their status; only the
    untouched rows are recalculated. Closing the cycle is what stops the timer.
 
-5. **Each profile is given what it has not used.** Two modes, chosen when you
+5. **Each profile is given what it has not used.** Jobs are first restricted to
+  profiles with the same headline as the profile(s) that found them. Two modes,
+  chosen when you
    open the cycle:
 
    - **Cover every profile** (default) — each profile gets every pooled job it
@@ -404,8 +410,9 @@ handed no work, which is backwards. So they join as recipients: they receive
 the pool without having fed it, and their own history still blocks anything
 they have already applied to. A late joiner is given jobs, not given away.
 
-Matched on **skills**, not on the headline, so "AI Engineer" and "ML Engineer"
-are recognised as the same market. Two guards keep it from being a free-for-all:
+Profiles that have not handed anything in are still found by **skills**, then
+receive only jobs whose headline matches their own. Two guards keep it from
+being a free-for-all:
 
 - A profile with **no skills recorded is never pulled in.** An empty field is
   not a match — it is a profile nobody has finished setting up, and handing it
@@ -789,10 +796,13 @@ colleague's machine.
    attached to a cycle and are unaffected: a reply that arrives three weeks
    late belongs to the work that earned it.
 
-Sheets can be any of `.xlsx`, `.xls`, `.csv`, `.tsv`. Only six columns are
-read — job link, job title, client, job description link, platform, applied
-on — and everything else is ignored. The mapper guesses which is which and the
-guess is editable.
+Sheets can be any of `.xlsx`, `.xls`, `.csv`, `.tsv`. The mapper reads job link,
+job title, company, job description link, platform, applied on and optional
+headline columns; everything else is ignored. Manual entry always shows a
+Headline is shown automatically from the active profile and cannot be changed
+per row. Each job is dispatched only to profiles with the same headline, so VA
+work stays with VA profiles and Accounts Receivable work stays with Accounts
+Receivable profiles.
 
 ### Reading the overlap matrix
 
@@ -810,9 +820,9 @@ nowhere else. If somebody needs a phone to buzz, that is still a phone.
 
 It has no way to search a job board. The pool is only ever what your team typed
 into their sheets, so a list is "jobs my colleagues found that this profile has
-not used", never fresh leads. It also has no notion of skill matching: if a
-full-stack profile hands in a sheet, those jobs are offered to your AI profiles
-too. Keep unrelated specialisms in separate cycles if that matters to you.
+not used", never fresh leads. Headline markets keep unrelated specialisms
+separate; skills are used only to identify profiles that may join a cycle when
+they have not handed in a sheet.
 
 ---
 

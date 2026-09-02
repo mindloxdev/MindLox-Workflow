@@ -29,6 +29,7 @@ const COLUMNS = [
   { key: "description_url", label: "Description link", width: "20%", hint: "optional" },
   { key: "platform", label: "Platform", width: "10%", hint: "" },
   { key: "date", label: "Applied on", width: "10%", hint: "" },
+  { key: "headline", label: "Headline", width: "15%", hint: "" },
 ];
 
 // The team works to Eastern time. Match app/models.py if that ever changes.
@@ -50,12 +51,12 @@ export function stampNow() {
 // counting it would file blank rows as work. The platform alone identifies
 // nothing either. Matches ingest.is_usable on the server.
 const IDENTIFYING = ["url", "title", "company"];
-const blankRow = () => ({ url: "", title: "", company: "", description_url: "",
-                          platform: "", date: stampNow() });
+const blankRow = (headline = "") => ({ url: "", title: "", company: "", description_url: "",
+                          platform: "", date: stampNow(), headline });
 const isEmpty = (row) => IDENTIFYING.every((key) => !String(row[key] || "").trim());
 
 /** Rows typed in by hand, saved as this profile's sheet for the cycle. */
-export default function EntryTable({ batchId, profileId, profileName, onSaved }) {
+export default function EntryTable({ batchId, profileId, profileName, profileHeadline = "", onSaved }) {
   const [rows, setRows] = useState([]);
   const [state, setState] = useState("loading");   // loading | idle | saving | saved | error
   const [error, setError] = useState("");
@@ -68,7 +69,9 @@ export default function EntryTable({ batchId, profileId, profileName, onSaved })
     api.listEntries(batchId, profileId)
       .then((data) => {
         if (!live) return;
-        setRows(data.rows.length ? data.rows : [blankRow()]);
+        setRows(data.rows.length
+          ? data.rows.map((row) => ({ ...row, headline: row.headline || profileHeadline }))
+          : [blankRow(profileHeadline)]);
         lastSaved.current = JSON.stringify(data.rows);
         setState("idle");
       })
@@ -103,7 +106,7 @@ export default function EntryTable({ batchId, profileId, profileName, onSaved })
   const addRow = () => {
     setRows((current) => {
       lastCell.current = current.length;
-      return [...current, blankRow()];
+      return [...current, blankRow(profileHeadline)];
     });
     setState("idle");
   };
@@ -111,7 +114,7 @@ export default function EntryTable({ batchId, profileId, profileName, onSaved })
   const removeRow = (index) => {
     setRows((current) => {
       const next = current.filter((_, i) => i !== index);
-      const safe = next.length ? next : [blankRow()];
+      const safe = next.length ? next : [blankRow(profileHeadline)];
       save(safe);
       return safe;
     });
@@ -137,7 +140,7 @@ export default function EntryTable({ batchId, profileId, profileName, onSaved })
       const next = [...current];
       grid.forEach((cells, r) => {
         const target = index + r;
-        if (!next[target]) next[target] = blankRow();
+        if (!next[target]) next[target] = blankRow(profileHeadline);
         else next[target] = { ...next[target] };
         cells.forEach((value, c) => {
           const column = COLUMNS[startColumn + c];
@@ -190,10 +193,14 @@ export default function EntryTable({ batchId, profileId, profileName, onSaved })
                           {PLATFORM_OPTIONS.map((option) => (
                             <option key={option} value={option}>{option}</option>
                           ))}
-                          {row.platform && !PLATFORM_OPTIONS.includes(row.platform) && (
+                          {isPlatform && row.platform && !PLATFORM_OPTIONS.includes(row.platform) && (
                             <option value={row.platform}>{row.platform}</option>
                           )}
                         </select>
+                      ) : c.key === "headline" ? (
+                        <span className="muted" style={{ display: "block", padding: "6px 4px" }}>
+                          {row.headline || "—"}
+                        </span>
                       ) : (
                         <input
                           id={`cell-${index}-${c.key}`}

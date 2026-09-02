@@ -381,7 +381,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
           {tab === "applied" && (
             <section className="stack" style={{ gap: 10 }}>
               <div>
-                <h2>Own jobs for {profile?.name}</h2>
+                  <h2>Own jobs for {profile?.name}{profile?.headline ? ` · ${profile.headline}` : ""}</h2>
                 <p className="hint" style={{ marginTop: 3 }}>
                   Hand these in so nobody is sent what this profile already used.
                 </p>
@@ -413,6 +413,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                       batchId={batchId}
                       profileId={profileId}
                       profileName={profile?.name}
+                      profileHeadline={profile?.headline}
                       onSaved={(result) => setUpload((current) => (
                         current
                           ? { ...current, row_count: result.row_count }
@@ -487,7 +488,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
             <section className="stack" style={{ gap: 10 }}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>
-                  <h2>New jobs for {profile?.name}</h2>
+                  <h2>New jobs for {profile?.name}{profile?.headline ? ` · ${profile.headline}` : ""}</h2>
                   <p className="muted" style={{ marginTop: 3 }}>
                     {sheet.length
                       ? `${sheet.length} jobs ${profile?.name} has never applied to, ${done} marked applied.`

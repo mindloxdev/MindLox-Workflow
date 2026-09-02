@@ -142,7 +142,7 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
               <thead>
                 <tr>
                   <th>Job</th>
-                  <th>Client</th>
+                  <th>Company</th>
                   <th>Applied as</th>
                   <th>Platform</th>
                   <th>When</th>

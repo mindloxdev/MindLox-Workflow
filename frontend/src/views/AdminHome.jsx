@@ -284,7 +284,7 @@ export default function AdminHome() {
           <div className="card scroll">
             <table>
               <thead>
-                <tr><th>Profile</th><th>Resume</th><th>Run by</th><th>File</th><th>Rows</th><th>Link column</th></tr>
+                <tr><th>Profile</th><th>Headline</th><th>Run by</th><th>File</th><th>Rows</th><th>Link column</th></tr>
               </thead>
               <tbody>
                 {detail.uploads.map((u) => (
@@ -363,7 +363,7 @@ export default function AdminHome() {
               <div className="card scroll">
                 <table>
                   <thead>
-                    <tr><th>Job</th><th>Client</th><th>Applied by</th></tr>
+                    <tr><th>Job</th><th>Company</th><th>Applied by</th></tr>
                   </thead>
                   <tbody>
                     {report.collisions.slice(0, 50).map((c, i) => (

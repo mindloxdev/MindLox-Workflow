@@ -277,7 +277,7 @@ export default function Assessments({
                      onChange={(e) => setForm({ ...form, title: e.target.value })} />
             </div>
             <div>
-              <label htmlFor="as-client">Client</label>
+              <label htmlFor="as-client">Company</label>
               <input id="as-client" style={{ width: "100%", marginTop: 4 }}
                      placeholder="Copperline Media" value={form.client}
                      onChange={(e) => setForm({ ...form, client: e.target.value })} />
@@ -392,7 +392,7 @@ function Section({ title, rows, canSet, open, setOpen, onChange, onRemove, empty
             <thead>
               <tr>
                 <th>What</th>
-                <th>Client</th>
+                <th>Company</th>
                 <th>Applied as</th>
                 <th style={{ width: 140 }}>Due · ET</th>
                 <th style={{ width: 160 }}>How far along</th>

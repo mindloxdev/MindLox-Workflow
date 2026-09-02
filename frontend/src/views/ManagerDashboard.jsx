@@ -227,7 +227,7 @@ function ProfileDetail({ profileId, batchId, dateRange, onClose }) {
         <div className="card scroll">
           <table>
             <thead>
-              <tr><th>Job</th><th>Client</th><th>Platform</th><th>Applied on</th></tr>
+              <tr><th>Job</th><th>Company</th><th>Platform</th><th>Applied on</th></tr>
             </thead>
             <tbody>
               {data.recent.map((job, i) => (

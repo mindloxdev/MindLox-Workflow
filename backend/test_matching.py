@@ -100,6 +100,14 @@ def test_partition_never_gives_you_your_own_job():
     assert 1 not in assigned[1] and 2 not in assigned[2]
 
 
+def test_headline_restricts_a_job_to_matching_profiles():
+    pool = [{"job_id": 1, "company_key": "acme", "blocked_for": set(),
+             "headlines": {"VA"},
+             "headline_by_profile": {1: "VA", 2: "Accounts Receivable"}}]
+    assigned, _ = cover(pool, [1, 2], quota=10)
+    assert assigned == {1: [1], 2: []}
+
+
 # --------------------------------------------------------------------------- #
 # Coverage mode — the default. Two profiles are two candidates, so a job one of
 # them has used is still worth the other's time.

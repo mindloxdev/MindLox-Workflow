@@ -12,12 +12,14 @@ FIELDS = [
      "synonyms": ["url", "link", "joblink", "joburl", "posting", "postlink", "href", "jobpost", "applylink"]},
     {"key": "title", "label": "Job title",
      "synonyms": ["title", "jobtitle", "position", "role", "job", "projecttitle", "projectname", "post"]},
-    {"key": "company", "label": "Client or company",
+    {"key": "company", "label": "Company",
      "synonyms": ["company", "client", "employer", "org", "organization", "buyer", "companyname", "clientname"]},
     {"key": "platform", "label": "Platform",
      "synonyms": ["platform", "source", "site", "portal", "board", "channel", "website", "medium"]},
     {"key": "date", "label": "Applied on",
      "synonyms": ["date", "applied", "appliedon", "applieddate", "appliedat", "timestamp", "day", "applydate"]},
+    {"key": "headline", "label": "Headline",
+     "synonyms": ["headline", "specialty", "speciality", "category", "market"]},
     # Where the posting is written out, when that is not the apply link. Never
     # part of a fingerprint: two profiles can hold two different links to the
     # same job's description, and matching on it would split one posting in two.

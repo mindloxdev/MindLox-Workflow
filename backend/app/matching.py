@@ -283,6 +283,8 @@ def cover(
     """Give every profile every job it has not already worked.
 
     pool entries: {"job_id": int, "company_key": str, "blocked_for": set[int]}
+    A pool entry may also include `headlines`, limiting it to profiles with
+    one of the same headlines as the profiles that applied.
     `blocked_for` is who must NOT receive it — the profiles that already applied
     to it, plus the ones that looked at it and skipped it.
 
@@ -308,7 +310,10 @@ def cover(
 
     candidates = []
     for job in pool:
-        takers = [h for h in holder_ids if h not in job["blocked_for"]]
+        headlines = job.get("headlines")
+        takers = [h for h in holder_ids
+              if h not in job["blocked_for"]
+              and (not headlines or job.get("headline_by_profile", {}).get(h) in headlines)]
         if not takers:
             saturated += 1
             continue
@@ -376,7 +381,10 @@ def partition(
 
     candidates = []
     for job in pool:
-        eligible = [uid for uid in holder_ids if uid not in job["blocked_for"]]
+        headlines = job.get("headlines")
+        eligible = [uid for uid in holder_ids
+                if uid not in job["blocked_for"]
+                and (not headlines or job.get("headline_by_profile", {}).get(uid) in headlines)]
         if not eligible:
             saturated += 1
             continue
@@ -460,6 +468,9 @@ def _rebalance(assigned: dict[int, list[int]], lookup: dict[int, dict],
                 for job_id in assigned[heavy]:
                     job = lookup[job_id]
                     if light in job["blocked_for"]:
+                        continue
+                    headlines = job.get("headlines")
+                    if headlines and job.get("headline_by_profile", {}).get(light) not in headlines:
                         continue
                     key = job.get("company_key") or ""
                     if one_per_client and key and clients[light].get(key):

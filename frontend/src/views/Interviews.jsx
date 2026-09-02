@@ -337,7 +337,7 @@ export default function Interviews({
                      onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })} />
             </div>
             <div>
-              <label htmlFor="iv-client">Client</label>
+                    <label htmlFor="iv-client">Company</label>
               <input id="iv-client" style={{ width: "100%", marginTop: 4 }}
                      placeholder="Northwind Digital" value={form.client}
                      onChange={(e) => setForm({ ...form, client: e.target.value })} />

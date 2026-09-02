@@ -21,6 +21,8 @@ const ROLE_LABELS = {
 
 const HEADLINE_OPTIONS = [
   "",
+  "VA",
+  "AI Engineer",
   "Accounts Receivable",
   "Customer Service",
   "RCM Analyst",

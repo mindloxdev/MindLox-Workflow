@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 
 HEADER_FILL = PatternFill("solid", fgColor="14202C")
 HEADER_FONT = Font(color="FFFFFF", bold=True, size=10)
-WIDTHS = {"#": 5, "Job title": 46, "Client": 26, "Platform": 14, "Job link": 52,
+WIDTHS = {"#": 5, "Job title": 46, "Company": 26, "Client": 26, "Platform": 14, "Job link": 52,
           "Already tried by": 22, "Match ref": 30, "Metric": 34, "Value": 14,
           "BD": 20, "Applied by": 30, "People": 9, "Status": 12,
           "Found by": 24, "Description link": 46,
@@ -59,7 +59,7 @@ def assignment_workbook(person: str, jobs: list[dict]) -> bytes:
     """
     book = Workbook()
     book.remove(book.active)
-    columns = ["#", "Job title", "Client", "Found by", "Platform", "Job link",
+    columns = ["#", "Job title", "Company", "Found by", "Platform", "Job link",
                "Description link", "Status"]
     rows = [
         [i, j.get("title", ""), j.get("company", ""),
@@ -90,7 +90,7 @@ def pipeline_workbook(interviews: list[dict], assessments: list[dict]) -> bytes:
 
     _write_sheet(
         book, "Conversations",
-        ["When · ET", "Applied as", "Developer", "Client", "Role", "Round",
+        ["When · ET", "Applied as", "Developer", "Company", "Role", "Round",
          "Follows", "How", "Status", "Outcome", "Reported by", "Job link"],
         [[row["when"]["label"], row["profile"], row.get("developer") or "",
           row["client"], row["role"],
@@ -104,7 +104,7 @@ def pipeline_workbook(interviews: list[dict], assessments: list[dict]) -> bytes:
 
     _write_sheet(
         book, "Take-homes",
-        ["What", "Client", "Applied as", "Developer", "Due · ET", "Status",
+        ["What", "Company", "Applied as", "Developer", "Due · ET", "Status",
          "Set by", "Submitted", "Submission", "Job link", "Applied on", "Notes"],
         [[row["title"], row["client"], row["profile"], row.get("developer") or "",
           (row["due"]["label"] if row.get("due") else "none set"),
@@ -137,7 +137,7 @@ def report_workbook(report: dict, per_person: dict[str, list[dict]],
                  [[k, v] for k, v in report.items()])
 
     _write_sheet(book, "Collisions",
-                 ["Job title", "Client", "Platform", "Job link", "Applied by", "People"],
+                 ["Job title", "Company", "Platform", "Job link", "Applied by", "People"],
                  [[c["title"], c["company"], c["platform"], c["url"],
                    ", ".join(c["applied_by"]), len(c["applied_by"])] for c in collisions])
 
@@ -145,7 +145,7 @@ def report_workbook(report: dict, per_person: dict[str, list[dict]],
                  [[matrix_names[i]] + row for i, row in enumerate(matrix)])
 
     for person, jobs in per_person.items():
-        _write_sheet(book, person, ["#", "Job title", "Client", "Platform", "Job link"],
+        _write_sheet(book, person, ["#", "Job title", "Company", "Platform", "Job link"],
                      [[i, j.get("title", ""), j.get("company", ""),
                        j.get("platform", ""), j.get("url", "")]
                       for i, j in enumerate(jobs, start=1)])
