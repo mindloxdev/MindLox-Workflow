@@ -345,9 +345,9 @@ export default function AdminHome() {
               <div className="card pad" key={p.id} style={{ borderTop: `3px solid ${p.assigned ? "var(--pine)" : "var(--rule)"}` }}>
                 <div style={{ fontFamily: "var(--display)", fontWeight: 600 }}>{p.name}</div>
                 <div className="muted" style={{ marginTop: 2 }}>{p.headline || "—"}</div>
-                <div className="mono" style={{ fontSize: 25, fontWeight: 500, marginTop: 6 }}>{p.assigned}</div>
+                <div className="mono" style={{ fontSize: 25, fontWeight: 500, marginTop: 6 }}>{p.pending}</div>
                 <div className="muted">
-                  new jobs{p.person ? ` · ${p.person}` : ""}
+                  new jobs · {p.assigned} total dispatched{p.person ? ` · ${p.person}` : ""}
                 </div>
               </div>
             ))}

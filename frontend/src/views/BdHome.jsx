@@ -363,7 +363,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
             onChange={setTab}
             items={[
               { key: "applied", label: "Own jobs", count: handedIn },
-              { key: "new", label: "New jobs", count: sheet.length },
+              { key: "new", label: "New jobs", count: newJobs.length },
               { key: "record", label: "All jobs" },
               { key: "interviews", label: "Interviews",
                 count: diary?.awaiting_time || diary?.today || diary?.scheduled,

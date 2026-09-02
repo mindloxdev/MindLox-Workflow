@@ -1181,10 +1181,12 @@ def build_lists(db: Session, batch: Batch) -> dict:
     batch.computed_at = batch.last_built_at
     db.commit()
 
-    counts = dict(db.execute(
-        select(Assignment.profile_id, func.count(Assignment.id))
+    counts = defaultdict(lambda: defaultdict(int))
+    for profile_id, status, count in db.execute(
+        select(Assignment.profile_id, Assignment.status, func.count(Assignment.id))
         .where(Assignment.batch_id == batch_id)
-        .group_by(Assignment.profile_id)).all())
+        .group_by(Assignment.profile_id, Assignment.status)).all():
+        counts[profile_id][status] = count
 
     return {
         **batch_json(batch),
@@ -1203,7 +1205,12 @@ def _participant_json(participants, profiles, owners, assigned=None, counts=None
             "name": profile.name if profile else "?",
             "headline": profile.headline if profile else "",
             "person": owners.get(profile.user_id) if profile else None,
-            "assigned": len(assigned[pid]) if assigned is not None else counts.get(pid, 0),
+            "assigned": (len(assigned[pid]) if assigned is not None
+                         else sum(counts.get(pid, {}).values())),
+            "pending": (len(assigned[pid]) if assigned is not None
+                        else counts.get(pid, {}).get("pending", 0)),
+            "applied": counts.get(pid, {}).get("applied", 0),
+            "skipped": counts.get(pid, {}).get("skipped", 0),
         })
     return out
 
