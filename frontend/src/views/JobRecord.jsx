@@ -158,6 +158,7 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
             <table className="board">
               <thead>
                 <tr>
+                  <th style={{ width: 34 }}>#</th>
                   <th>Job</th>
                   <th>Company</th>
                   <th>Applied as</th>
@@ -168,9 +169,12 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
                 </tr>
               </thead>
               <tbody>
-                {data.rows.map((row) => (
+                {data.rows.map((row, index) => (
                   <React.Fragment key={`${row.job_id}-${row.profile_id}`}>
                     <tr>
+                      <td className="mono muted" style={{ textAlign: "right" }}>
+                        {page * PAGE + index + 1}
+                      </td>
                       <td className="truncate" style={{ maxWidth: 320 }}>
                         {row.title || <span className="muted">no title recorded</span>}
                       </td>
@@ -204,7 +208,7 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
                     </tr>
                     {starting === `${row.job_id}-${row.profile_id}` && (
                       <tr>
-                        <td colSpan={7}>
+                        <td colSpan={8}>
                           <div className="stack" style={{ gap: 9, padding: "10px 2px" }}>
                             <div>
                               <b style={{ fontFamily: "var(--display)" }}>
