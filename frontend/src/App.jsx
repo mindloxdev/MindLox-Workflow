@@ -135,7 +135,7 @@ export default function App() {
   return (
     <ToastHost>
       <header className="top">
-        <span className="brand">Dispatch</span>
+        <span className="brand">MindLox Ai</span>
 
         <nav className="tabs" aria-label="Sections">
           {tabs.map((t) => (
