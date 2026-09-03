@@ -383,11 +383,17 @@ def test_the_board_is_ranked(client, admin, worked_cycle):
 def test_the_overview_rolls_profiles_up_to_the_person(client, admin, dana, worked_cycle):
     """One person may run several profiles, so the person row is the sum of
     theirs — that is the only view that answers 'how is Dana doing'."""
+    # A profile belonging to somebody else, to prove the roll-up separates
+    # people rather than summing the workspace. It used to be created with
+    # `user_id: None`, which the API refuses — a profile must have a BD, and
+    # that rule is deliberate — so the test was failing before it reached a
+    # single assertion about the thing it is named for.
+    people = {u["email"]: u["id"] for u in client.get("/api/users", headers=admin).json()}
     extra = client.post("/api/profiles",
                         json={"name": f"Board{next(_serial)}", "headline": "AI Engineer",
-                              "user_id": None},
+                              "user_id": people["dash-two@dashboard.example.com"]},
                         headers=admin)
-    assert extra.status_code == 201
+    assert extra.status_code == 201, extra.text
 
     data = client.get(f"/api/dashboard/overview?batch_id={worked_cycle['batch_id']}",
                       headers=admin).json()
@@ -396,6 +402,7 @@ def test_the_overview_rolls_profiles_up_to_the_person(client, admin, dana, worke
     assert person["runs"] == len(mine)
     assert person["logged"] == sum(r["logged"] for r in mine)
     assert person["applied"] == sum(r["applied"] for r in mine)
+    assert extra.json()["id"] not in {r["profile_id"] for r in mine},         "somebody else's profile does not count towards this person"
 
 
 def test_the_overview_names_who_has_not_handed_in(client, admin, make_profile):

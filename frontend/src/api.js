@@ -1,5 +1,20 @@
 const KEY = "dispatch.token";
 
+/** What actually happened to a posting when an entry was deleted.
+ *
+ * Three outcomes and they are not the same news. It was deleted; it was kept
+ * because a colleague also applied and their record is not this person's to
+ * remove; or it was kept because a client replied to it, which is the rarest
+ * row in the system and outlives the application that earned it.
+ */
+export function deletedLabel(result, what) {
+  if (result?.job_deleted) return `${what} was deleted.`;
+  if (result?.kept_for_replies > 0) {
+    return `${what} was withdrawn. The posting stays — a client replied to it.`;
+  }
+  return `${what} was withdrawn. A colleague still holds the posting.`;
+}
+
 export function getToken() {
   return sessionStorage.getItem(KEY) || "";
 }
@@ -214,8 +229,8 @@ export const api = {
   editJob: (jobId, payload) =>
     request(`/jobs/${jobId}`, { method: "PATCH", body: payload }),
 
-  // Withdraw one profile's application to one job. The job row stays, because
-  // colleagues may hold it too.
+  // Delete one profile's entry. The posting goes with it unless somebody else
+  // has applied to it, or a client replied to it — see deletedLabel.
   deleteEntry: (jobId, profileId) =>
     request(`/jobs/${jobId}/profiles/${profileId}`, { method: "DELETE" }),
 };

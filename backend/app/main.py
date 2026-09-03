@@ -876,8 +876,33 @@ def list_entries(batch_id: int, profile_id: int, db: Session = Depends(get_db),
     if not upload:
         return {"rows": [], "filename": None, "row_count": 0, "typed": True}
     rows = ingest.project_rows(upload.rows or [], upload.mapping or {})
-    rows = [{**row, "headline": profile.headline or ""} for row in rows]
-    return {"rows": rows, "filename": upload.filename, "row_count": len(rows),
+
+    # What each typed row has become in the database, so the screen can offer
+    # the same two actions the all-time record does. A row that has not been
+    # through a build yet is not a job anywhere else and carries no id — which
+    # is the truth, and is why `job_id` may be null.
+    prints = [matching.fingerprint(row["url"], row["title"], row["company"])[0]
+              for row in rows]
+    jobs: dict[str, Job] = {}
+    for chunk in _chunks({fp for fp in prints if fp}):
+        for job in db.scalars(select(Job).where(Job.fingerprint.in_(chunk))):
+            jobs[job.fingerprint] = job
+    logged = {job_id for (job_id,) in db.execute(
+        select(Application.job_id).where(Application.profile_id == profile.id,
+                                         Application.job_id.in_([j.id for j in jobs.values()])))
+        } if jobs else set()
+    sourced = _sourced_jobs(db, [j.id for j in jobs.values()], user) \
+        if user.role != "admin" else {j.id for j in jobs.values()}
+
+    out = []
+    for row, fingerprint in zip(rows, prints):
+        job = jobs.get(fingerprint) if fingerprint else None
+        out.append({**row, "headline": profile.headline or "",
+                    "job_id": job.id if job else None,
+                    "in_record": bool(job and job.id in logged),
+                    "can_edit": bool(job and job.id in sourced)})
+
+    return {"rows": out, "filename": upload.filename, "row_count": len(out),
             "usable_count": upload.usable_count,
             "typed": (upload.mapping or {}) == TYPED_HEADERS}
 
@@ -935,6 +960,7 @@ def save_entries(batch_id: int, profile_id: int, body: EntriesIn,
         db.add(upload)
     elif upload.mapping != TYPED_HEADERS:
         upload.filename = f"{upload.filename} (edited)" if upload.filename else "Typed in"
+    was = ingest.project_rows(upload.rows or [], upload.mapping or {})
     upload.headers = list(TYPED_HEADERS.values())
     upload.mapping = dict(TYPED_HEADERS)
     upload.rows = kept
@@ -942,10 +968,82 @@ def save_entries(batch_id: int, profile_id: int, body: EntriesIn,
     usable = len(ingest.apply_mapping(kept, TYPED_HEADERS))
     upload.usable_count = usable
     upload.user_id = user.id
+
+    corrected = _propagate_sheet_edits(db, was, kept, user)
     db.commit()
 
     return {"ok": True, "row_count": len(kept), "usable": usable,
-            "usable_count": usable, "filename": upload.filename}
+            "usable_count": usable, "filename": upload.filename,
+            "corrected": corrected}
+
+
+def _propagate_sheet_edits(db: Session, before: list[dict], after_raw: list[dict],
+                           user: User) -> int:
+    """Carry a correction typed on a sheet through to the shared posting.
+
+    Fixing a client's name on your own sheet used to change nothing anybody
+    else could see: `build_lists` fills a job's fields only when they are
+    empty, so the posting kept whatever it was first given and the sheet and
+    the job quietly disagreed from then on.
+
+    Only fields the BD actually changed. Comparing the new sheet against the
+    *job* instead would make every save an assertion about every field, so
+    re-saving an untouched sheet would stamp its old wording back over a
+    colleague's correction — last writer wins, on a screen nobody thinks of as
+    writing to shared data. Comparing against the previous sheet says something
+    much narrower and truer: this person just edited this field, so this is
+    what they mean it to say.
+
+    The link is deliberately not propagated. It is what the fingerprint is
+    built from, so changing it does not correct a posting — it names a
+    different one, and the row simply becomes that other job on the next build.
+    Corrections to identity go through PATCH /api/jobs/{id}, which checks for a
+    collision first.
+    """
+    after = ingest.project_rows(after_raw, TYPED_HEADERS)
+    keyed_before: dict[str, dict] = {}
+    for row in before:
+        fingerprint, _ = matching.fingerprint(row["url"], row["title"], row["company"])
+        if fingerprint:
+            keyed_before.setdefault(fingerprint, row)
+
+    changed: dict[str, dict] = {}
+    for row in after:
+        fingerprint, _ = matching.fingerprint(row["url"], row["title"], row["company"])
+        old = keyed_before.get(fingerprint) if fingerprint else None
+        if not fingerprint or old is None:
+            continue
+        edits = {field: row[field]
+                 for field in ("title", "company", "platform", "description_url")
+                 if (row.get(field) or "") != (old.get(field) or "")}
+        if edits:
+            changed[fingerprint] = edits
+    if not changed:
+        return 0
+
+    jobs = {job.fingerprint: job for job in db.scalars(
+        select(Job).where(Job.fingerprint.in_(list(changed))))}
+    if not jobs:
+        return 0
+    allowed = _sourced_jobs(db, [job.id for job in jobs.values()], user) \
+        if user.role != "admin" else {job.id for job in jobs.values()}
+
+    corrected = 0
+    for fingerprint, edits in changed.items():
+        job = jobs.get(fingerprint)
+        if job is None or job.id not in allowed:
+            continue
+        if "title" in edits:
+            job.title = edits["title"][:500]
+        if "company" in edits:
+            job.company = edits["company"][:300]
+            job.company_key = matching.normalize_text(job.company)[:300]
+        if "platform" in edits:
+            job.platform = edits["platform"][:120]
+        if "description_url" in edits:
+            job.description_url = ingest.safe_url(edits["description_url"])[:2000]
+        corrected += 1
+    return corrected
 
 
 @app.delete("/api/uploads/{upload_id}")
@@ -1826,33 +1924,112 @@ def edit_job(job_id: int, body: JobPatch, db: Session = Depends(get_db),
 @app.delete("/api/jobs/{job_id}/profiles/{profile_id}")
 def delete_entry(job_id: int, profile_id: int, db: Session = Depends(get_db),
                  user: User = Depends(current_user)):
-    """Withdraw one profile's application to one job.
+    """Withdraw one profile's entry, and take the job with it when nobody else
+    holds it.
 
-    Scoped to the profile on purpose. The job row stays, because colleagues may
-    hold it too and deleting it would take it out of their record as well as
-    this one — a mistyped entry is one person's to take back, not one person's
-    to take from everybody.
+    Deleting has to be thorough or it does not hold. There are four places a
+    withdrawn job hides, and leaving any one of them puts it back on screen:
 
-    The all-time row goes, the per-cycle row goes with it, and an assignment
-    that had been marked applied returns to `pending`: this profile has not
-    applied to the job any more, so it is a job the profile can legitimately be
-    offered again.
+      the profile's sheet   the row the BD typed. Left there, the next
+                            automatic rebuild re-reads it and files the
+                            application again — within ten minutes on a cycle
+                            with the timer on, which reads as the delete having
+                            silently failed.
+      batch_applications    the per-cycle record of having logged it.
+      assignments           the dispatched row. An earlier version of this set
+                            it back to `pending` rather than removing it, which
+                            put the job straight back on the BD's new-jobs list
+                            — the opposite of what withdrawing it means.
+      applications          the all-time record.
+
+    The job row itself goes too, but only once nothing points at it. A posting
+    two profiles applied to is a posting the other profile still has in its
+    record, and deleting it there would take a colleague's history with it. So
+    it is removed when it is orphaned and kept when it is not, which is the only
+    reading of "delete it" that cannot destroy somebody else's work.
     """
     profile = owned_profile(profile_id, db, user)
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(404, "No such job.")
     application = db.scalar(select(Application).where(
         Application.job_id == job_id, Application.profile_id == profile.id))
-    if application is None:
-        raise HTTPException(404, "There is no application from this profile to that job.")
+    assignments = db.scalars(select(Assignment).where(
+        Assignment.job_id == job_id, Assignment.profile_id == profile.id)).all()
+    if application is None and not assignments:
+        raise HTTPException(404, "This profile has no entry for that job.")
 
+    # 1. Out of the sheet, so no rebuild can resurrect it.
+    #
+    # Only sheets belonging to a cycle that is still open. A closed cycle is a
+    # finished record — its report says what was handed in that week, and
+    # editing that after the fact to tidy up today's mistake would rewrite
+    # history nobody asked to change. A closed cycle is also never rebuilt, so
+    # there is nothing there to bring the job back.
+    removed_from_sheet = 0
+    open_sheets = db.scalars(
+        select(Upload).join(Batch, Batch.id == Upload.batch_id)
+        .where(Upload.profile_id == profile.id, Batch.status == "open")).all()
+    for upload in open_sheets:
+        mapping = upload.mapping or {}
+        original = upload.rows or []
+        # One projection for the whole sheet rather than one per row: a BD who
+        # uploaded a real spreadsheet has thousands of them.
+        projected = ingest.project_rows(original, mapping)
+        kept = [raw for raw, record in zip(original, projected)
+                if matching.fingerprint(record["url"], record["title"],
+                                        record["company"])[0] != job.fingerprint]
+        if len(kept) != len(original):
+            removed_from_sheet += len(original) - len(kept)
+            upload.rows = kept
+            upload.row_count = len(kept)
+            upload.usable_count = len(ingest.apply_mapping(kept, mapping))
+
+    # 2-4. Out of the cycle record, off the list, out of the history.
     db.execute(delete(BatchApplication).where(
         BatchApplication.job_id == job_id, BatchApplication.profile_id == profile.id))
-    db.execute(update(Assignment)
-               .where(Assignment.job_id == job_id, Assignment.profile_id == profile.id,
-                      Assignment.status == "applied")
-               .values(status="pending", status_changed_at=utcnow()))
-    db.delete(application)
+    db.execute(delete(Assignment).where(
+        Assignment.job_id == job_id, Assignment.profile_id == profile.id))
+    if application is not None:
+        db.delete(application)
+    db.flush()
+
+    # 5. And the posting itself, once nobody has applied to it.
+    #
+    # Applications are the test, not assignments. An application is somebody's
+    # work — a real approach to a real client — and deleting a posting somebody
+    # else has applied to would take their history with it, which no button on
+    # one person's screen should be able to do.
+    #
+    # An assignment is not work. It is a suggestion the build produced, and it
+    # exists only because somebody found the job in the first place. So when
+    # the last application goes, the postings on other people's to-do lists are
+    # dangling suggestions for a job nobody is claiming any more, and they go
+    # too. The next rebuild would have removed them anyway once the job left
+    # every sheet; doing it here is what makes the delete look like a delete
+    # instead of something that half happens ten minutes later.
+    #
+    # A conversation is the other thing that keeps a posting alive, and the
+    # stronger of the two. An interview or an assessment means the client
+    # answered — the rarest and most valuable row in this system — and both
+    # tables point at `jobs` without an ON DELETE rule, so deleting underneath
+    # one is a foreign-key error on Postgres rather than a tidy-up. Either way
+    # the posting stays: a reply outlives the application that earned it.
+    still_held = db.scalar(select(func.count()).select_from(Application)
+                           .where(Application.job_id == job_id)) or 0
+    replied = (db.scalar(select(func.count()).select_from(Interview)
+                         .where(Interview.job_id == job_id)) or 0)         + (db.scalar(select(func.count()).select_from(Assessment)
+                     .where(Assessment.job_id == job_id)) or 0)
+    orphaned = not still_held and not replied
+    if orphaned:
+        db.execute(delete(BatchApplication).where(BatchApplication.job_id == job_id))
+        db.execute(delete(Assignment).where(Assignment.job_id == job_id))
+        db.delete(job)
+
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "job_deleted": orphaned,
+            "rows_removed_from_sheet": removed_from_sheet,
+            "still_held_by": still_held, "kept_for_replies": replied}
 
 
 @app.patch("/api/assignments/{assignment_id}")
@@ -2606,7 +2783,8 @@ def download_report(batch_id: int, db: Session = Depends(get_db), _: User = Depe
     per_profile = {p["name"]: grouped.get(p["id"], []) for p in data["participants"]}
     payload = exports.report_workbook(
         data["report"], per_profile, data["collisions"],
-        data["matrix"]["names"], data["matrix"]["rows"])
+        data["matrix"]["names"], data["matrix"]["rows"],
+        data.get("turned_down"))
     return Response(payload, media_type=XLSX,
                     headers={"Content-Disposition": f'attachment; filename="dispatch-batch-{batch_id}.xlsx"'})
 

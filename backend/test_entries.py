@@ -330,19 +330,6 @@ def test_a_correction_that_would_merge_two_postings_is_refused(client, admin, a_
     assert "already recorded separately" in response.json()["detail"]
 
 
-def test_withdrawing_takes_back_one_profile_s_entry_and_no_one_else_s(
-        client, admin, a_shared_job):
-    owner = token(client, TEAM[1][0])
-    response = client.delete(
-        f"/api/jobs/{a_shared_job['job_id']}/profiles/{a_shared_job['mine']}",
-        headers=owner)
-    assert response.status_code == 200
-
-    record = client.get("/api/jobs", headers=admin,
-                        params={"q": f"Role {a_shared_job['base']}"}).json()
-    holders = {row["profile_id"] for row in record["rows"]}
-    assert a_shared_job["mine"] not in holders
-    assert a_shared_job["theirs"] in holders, "the colleague keeps their own record"
 
 
 def test_you_cannot_withdraw_somebody_else_s_entry(client, a_shared_job):
@@ -351,6 +338,176 @@ def test_you_cannot_withdraw_somebody_else_s_entry(client, a_shared_job):
         f"/api/jobs/{a_shared_job['job_id']}/profiles/{a_shared_job['mine']}",
         headers=stranger)
     assert response.status_code == 403
+
+
+def test_deleting_the_last_entry_removes_the_posting_itself(client, admin, make_profile):
+    """Nothing points at it any more, so it should not be in the database."""
+    from app.main import SessionLocal
+    from app.models import Job
+
+    mine, other = make_profile(TEAM[1][0]), make_profile(TEAM[2][0])
+    batch = open_cycle(client, admin)
+    base = next(_serial) * 1000 + 960000
+    bd = token(client, TEAM[1][0])
+    type_in(client, bd, batch, mine, [base])
+    type_in(client, token(client, TEAM[2][0]), batch, other, [base + 1, base + 2])
+    assert client.post(f"/api/batches/{batch}/compute", headers=admin).status_code == 200
+
+    row = client.get("/api/jobs", headers=admin,
+                     params={"q": f"Role {base}"}).json()["rows"][0]
+    result = client.delete(f"/api/jobs/{row['job_id']}/profiles/{mine}", headers=bd).json()
+    assert result["job_deleted"] is True
+    assert result["still_held_by"] == 0
+
+    db = SessionLocal()
+    assert db.get(Job, row["job_id"]) is None, "the posting should be gone from the database"
+    db.close()
+
+    assert client.get("/api/jobs", headers=admin,
+                      params={"q": f"Role {base}"}).json()["total"] == 0
+
+
+def test_a_posting_a_colleague_still_holds_survives_the_delete(client, admin, a_shared_job):
+    """Deleting must never reach into somebody else's record."""
+    from app.main import SessionLocal
+    from app.models import Job
+
+    owner = token(client, TEAM[1][0])
+    result = client.delete(
+        f"/api/jobs/{a_shared_job['job_id']}/profiles/{a_shared_job['mine']}",
+        headers=owner).json()
+    assert result["job_deleted"] is False
+    assert result["still_held_by"] == 1
+
+    db = SessionLocal()
+    assert db.get(Job, a_shared_job["job_id"]) is not None
+    db.close()
+
+    record = client.get("/api/jobs", headers=admin,
+                        params={"q": f"Role {a_shared_job['base']}"}).json()
+    holders = {row["profile_id"] for row in record["rows"]}
+    assert a_shared_job["mine"] not in holders
+    assert a_shared_job["theirs"] in holders, "the colleague keeps their own record"
+
+
+def test_a_deleted_job_is_taken_off_the_sheet_so_a_rebuild_cannot_revive_it(
+        client, admin, make_profile):
+    """The bug this replaces: the row stayed on the sheet and the next build,
+    ten minutes later, filed the application all over again."""
+    mine, other = make_profile(TEAM[1][0]), make_profile(TEAM[2][0])
+    batch = open_cycle(client, admin)
+    base = next(_serial) * 1000 + 970000
+    bd = token(client, TEAM[1][0])
+    type_in(client, bd, batch, mine, [base, base + 1])
+    type_in(client, token(client, TEAM[2][0]), batch, other, [base + 5, base + 6])
+    assert client.post(f"/api/batches/{batch}/compute", headers=admin).status_code == 200
+
+    row = client.get("/api/jobs", headers=admin,
+                     params={"q": f"Role {base} "}).json()["rows"][0]
+    before = client.get(f"/api/batches/{batch}/profiles/{mine}/entries",
+                        headers=bd).json()
+    assert any(r["url"] == link(base) for r in before["rows"])
+
+    assert client.delete(f"/api/jobs/{row['job_id']}/profiles/{mine}",
+                         headers=bd).json()["rows_removed_from_sheet"] == 1
+
+    after = client.get(f"/api/batches/{batch}/profiles/{mine}/entries", headers=bd).json()
+    assert not any(r["url"] == link(base) for r in after["rows"]), \
+        "the row must leave the sheet, or the next rebuild re-files it"
+    assert after["usable_count"] == 1
+
+    # And the rebuild really does leave it alone.
+    assert client.post(f"/api/batches/{batch}/compute", headers=admin).status_code == 200
+    assert client.get("/api/jobs", headers=admin,
+                      params={"q": f"Role {base} "}).json()["total"] == 0
+
+
+def test_a_deleted_job_does_not_come_back_on_the_new_jobs_list(client, admin, a_shared_job):
+    """Setting the assignment back to `pending` used to put it straight back."""
+    bo = token(client, TEAM[2][0])
+    still_listed = [job for job in dispatched(client, bo, a_shared_job["batch"],
+                                              a_shared_job["theirs"])
+                    if job["job_id"] == a_shared_job["job_id"]]
+    assert client.delete(
+        f"/api/jobs/{a_shared_job['job_id']}/profiles/{a_shared_job['theirs']}",
+        headers=bo).status_code == 200
+
+    left = [job for job in dispatched(client, bo, a_shared_job["batch"],
+                                      a_shared_job["theirs"])
+            if job["job_id"] == a_shared_job["job_id"]]
+    assert left == [], "a deleted job must not reappear on the list it was deleted from"
+
+
+# --------------------------------------------------------------------------- #
+# Own jobs: what the sheet says about each row, and correcting one
+# --------------------------------------------------------------------------- #
+
+def test_the_sheet_says_which_rows_have_reached_the_record(client, admin, make_profile):
+    """The screen needs this to know whether removing a row is a delete."""
+    mine, other = make_profile(TEAM[1][0]), make_profile(TEAM[2][0])
+    batch = open_cycle(client, admin)
+    base = next(_serial) * 1000 + 980000
+    bd = token(client, TEAM[1][0])
+    type_in(client, bd, batch, mine, [base])
+    type_in(client, token(client, TEAM[2][0]), batch, other, [base + 1, base + 2])
+
+    # Before any build, the row is a line on a sheet and nothing else.
+    rows = client.get(f"/api/batches/{batch}/profiles/{mine}/entries",
+                      headers=bd).json()["rows"]
+    assert rows[0]["job_id"] is None and rows[0]["in_record"] is False
+
+    assert client.post(f"/api/batches/{batch}/compute", headers=admin).status_code == 200
+    rows = client.get(f"/api/batches/{batch}/profiles/{mine}/entries",
+                      headers=bd).json()["rows"]
+    assert rows[0]["job_id"] is not None
+    assert rows[0]["in_record"] is True
+    assert rows[0]["can_edit"] is True, "they typed it in, so it is theirs to correct"
+
+
+def test_correcting_a_row_on_your_sheet_corrects_the_posting_for_everyone(
+        client, admin, make_profile):
+    mine, other = make_profile(TEAM[1][0]), make_profile(TEAM[2][0])
+    batch = open_cycle(client, admin)
+    base = next(_serial) * 1000 + 990000
+    bd = token(client, TEAM[1][0])
+    type_in(client, bd, batch, mine, [base])
+    type_in(client, token(client, TEAM[2][0]), batch, other, [base + 1, base + 2])
+    assert client.post(f"/api/batches/{batch}/compute", headers=admin).status_code == 200
+
+    saved = client.put(f"/api/batches/{batch}/profiles/{mine}/entries", headers=bd,
+                       json={"rows": [{"url": link(base), "title": "Senior AR Specialist",
+                                       "company": "Northwind Digital", "platform": "Monster",
+                                       "date": "2026-08-01 09:00"}]}).json()
+    assert saved["corrected"] == 1
+
+    row = client.get("/api/jobs", headers=admin,
+                     params={"q": "Northwind Digital"}).json()["rows"][0]
+    assert row["title"] == "Senior AR Specialist"
+    assert row["platform"] == "Monster"
+
+
+def test_resaving_an_untouched_sheet_corrects_nothing(client, admin, make_profile):
+    """Otherwise every save would stamp old wording over somebody's correction."""
+    mine, other = make_profile(TEAM[1][0]), make_profile(TEAM[2][0])
+    batch = open_cycle(client, admin)
+    base = next(_serial) * 1000 + 991000
+    bd = token(client, TEAM[1][0])
+    type_in(client, bd, batch, mine, [base])
+    type_in(client, token(client, TEAM[2][0]), batch, other, [base + 1, base + 2])
+    assert client.post(f"/api/batches/{batch}/compute", headers=admin).status_code == 200
+
+    # Somebody else corrects the posting.
+    job_id = client.get("/api/jobs", headers=admin,
+                        params={"q": f"Role {base} "}).json()["rows"][0]["job_id"]
+    assert client.patch(f"/api/jobs/{job_id}", headers=admin,
+                        json={"company": "Corrected Client"}).status_code == 200
+
+    # The BD re-saves their sheet without touching it. The correction stands.
+    saved = type_in(client, bd, batch, mine, [base])
+    assert saved["corrected"] == 0
+    row = client.get("/api/jobs", headers=admin,
+                     params={"q": "Corrected Client"}).json()["rows"][0]
+    assert row["company"] == "Corrected Client"
 
 
 # --------------------------------------------------------------------------- #
@@ -398,3 +555,40 @@ def test_an_uploaded_sheet_separates_its_line_count_from_its_usable_count(
     body = response.json()
     assert body["row_count"] == 7, "the file really did have seven rows"
     assert body["usable_count"] == 4, "only four of them are a job"
+
+
+def test_a_posting_with_an_interview_survives_the_delete(client, admin, make_profile):
+    """A reply is the rarest row in the system and outlives the application.
+
+    It is also a foreign key with no ON DELETE rule, so deleting underneath one
+    is an integrity error on Postgres rather than a tidy-up.
+    """
+    mine, other = make_profile(TEAM[1][0]), make_profile(TEAM[2][0])
+    batch = open_cycle(client, admin)
+    base = next(_serial) * 1000 + 992000
+    bd = token(client, TEAM[1][0])
+    type_in(client, bd, batch, mine, [base])
+    type_in(client, token(client, TEAM[2][0]), batch, other, [base + 1, base + 2])
+    assert client.post(f"/api/batches/{batch}/compute", headers=admin).status_code == 200
+
+    row = client.get("/api/jobs", headers=admin,
+                     params={"q": f"Role {base} "}).json()["rows"][0]
+    made = client.post("/api/interviews", headers=bd,
+                       json={"profile_id": mine, "job_id": row["job_id"],
+                             "scheduled_at": ""})
+    assert made.status_code == 201, made.text
+
+    result = client.delete(f"/api/jobs/{row['job_id']}/profiles/{mine}", headers=bd)
+    assert result.status_code == 200, result.text
+    body = result.json()
+    assert body["job_deleted"] is False
+    assert body["kept_for_replies"] == 1
+
+    # The entry is withdrawn, but the conversation still points at a real job.
+    from app.main import SessionLocal
+    from app.models import Job
+    db = SessionLocal()
+    assert db.get(Job, row["job_id"]) is not None
+    db.close()
+    diary = client.get("/api/interviews", headers=bd).json()
+    assert any(i["id"] == made.json()["id"] for i in diary["rows"])

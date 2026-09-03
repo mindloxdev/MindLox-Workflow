@@ -158,17 +158,25 @@ def test_the_record_holds_everything_applied_for(client, bd, applied):
 
 def test_found_by_uses_bd_names_not_profile_names(client, admin, bd, other_bd, make_profile):
     """A row should call out the people who applied, not the profile label they used."""
-    mine = make_profile(bd_email="dv-bd@developer.example.com")
-    theirs = make_profile(bd_email="dv-other@developer.example.com")
+    # This module's own team. The emails here were copied in from
+    # test_developer.py, where "dv-bd@" and "Otto Other" exist — in this module
+    # they do not, so the fixture raised a KeyError before the test could run.
+    mine = make_profile(bd_email="pl-bd@pipeline.example.com")
+    theirs = make_profile(bd_email="pl-bd2@pipeline.example.com")
     batch = cycle(client, admin, f"FoundBy{next(_serial)}")
+    # The ranges have to differ, or there is nothing to test. Both sheets held
+    # 820-825, so in cover mode each profile had already applied to everything
+    # the other found and neither was dispatched a single job — `found_by` was
+    # read off an empty list. Overlapping them leaves 826-829 for `mine`, all
+    # of them found by the other BD.
     hand_in(client, batch, bd, mine["id"], sheet(range(820, 826)))
-    hand_in(client, batch, other_bd, theirs["id"], sheet(range(820, 826), "Northwind Digital"))
+    hand_in(client, batch, other_bd, theirs["id"], sheet(range(823, 830), "Northwind Digital"))
     client.post(f"/api/batches/{batch}/compute", headers=admin)
 
     jobs = client.get(f"/api/batches/{batch}/profiles/{mine['id']}/sheet", headers=bd).json()["jobs"]
     found = {name for row in jobs for name in row["found_by"]}
-    assert "Otto Other" in found
-    assert "Behind" not in " ".join(found)
+    assert "Fay Zann" in found, "the colleague who applied, by their own name"
+    assert "Pipe" not in " ".join(found), "not the profile label they applied under"
 
 
 def test_the_record_is_searched_by_anything_pasted_out_of_an_email(client, bd, applied):
@@ -193,9 +201,23 @@ def test_the_record_is_searched_by_anything_pasted_out_of_an_email(client, bd, a
     assert client.get("/api/jobs?q=nothingmatchesthis", headers=bd).json()["total"] == 0
 
 
-def test_the_record_stops_at_the_profiles_you_run(client, other_bd, applied):
-    """A BD who runs neither profile sees none of it."""
-    assert client.get("/api/jobs", headers=other_bd).json()["total"] == 0
+def test_the_record_stops_at_the_profiles_you_run(client, bd, other_bd, applied):
+    """A BD who runs neither profile sees none of it.
+
+    Asserted against the two profiles in question rather than against a total
+    of zero. This module shares one database across its tests, so the other BD
+    picks up a history of their own as the suite runs — and a test that only
+    holds while a colleague has never logged anything is testing the order the
+    tests happen to run in, not the scoping rule it is named for.
+    """
+    seen = client.get("/api/jobs", headers=other_bd).json()
+    off_limits = {applied["profile"]["id"], applied["other"]["id"]}
+    assert not ({row["profile_id"] for row in seen["rows"]} & off_limits)
+
+    # The BD who does run them sees them, so the rule above is a real boundary
+    # and not an empty result from some unrelated cause.
+    theirs = client.get("/api/jobs", headers=bd).json()
+    assert {row["profile_id"] for row in theirs["rows"]} & off_limits
 
 
 def test_the_record_pages(client, bd, applied):

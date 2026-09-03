@@ -129,7 +129,8 @@ def pipeline_workbook(interviews: list[dict], assessments: list[dict]) -> bytes:
 
 def report_workbook(report: dict, per_person: dict[str, list[dict]],
                     collisions: list[dict], matrix_names: list[str],
-                    matrix: list[list[int]]) -> bytes:
+                    matrix: list[list[int]],
+                    turned_down: list[dict] | None = None) -> bytes:
     book = Workbook()
     book.remove(book.active)
 
@@ -143,6 +144,16 @@ def report_workbook(report: dict, per_person: dict[str, list[dict]],
 
     _write_sheet(book, "Overlap matrix", ["BD"] + matrix_names,
                  [[matrix_names[i]] + row for i, row in enumerate(matrix)])
+
+    # What was turned down and why. On the screen already; without it here the
+    # download is a worse document than the page it came from, and this is the
+    # sheet a manager reads away from their desk.
+    if turned_down:
+        _write_sheet(book, "Turned down",
+                     ["Job title", "Company", "Profile", "Reason", "When", "Job link"],
+                     [[t.get("title", ""), t.get("company", ""), t.get("profile", ""),
+                       t.get("reason", ""), t.get("when", ""), t.get("url", "")]
+                      for t in turned_down])
 
     for person, jobs in per_person.items():
         _write_sheet(book, person, ["#", "Job title", "Company", "Platform", "Job link"],

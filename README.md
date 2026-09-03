@@ -807,8 +807,11 @@ Two different answers, and they are not the same kind of thing:
 | **Duplicate entry found** | *This* profile already applied, and the date it did. One identity approaching one client twice, which is the thing the whole product exists to prevent. |
 | **Somebody else has applied to this** | A colleague's profile holds it. Not a duplicate at all — a different profile is a different candidate, which is the point of running several — but worth knowing before spending the time. |
 
-Either way the row is yours to keep: **Ignore — keep this row** files it anyway,
-and the answer is remembered for that link so you are not asked twice.
+It arrives as a dialog over the page, not a line above the table — a banner in a
+scrolling grid is missed exactly when it matters, because the BD has already
+moved to the next cell. Either way the row is yours to keep: **Ignore — keep
+this row** files it anyway (Enter, or Escape, does the same), and the answer is
+remembered for that link so you are not asked twice.
 
 ### Nothing saves until you say so
 
@@ -835,7 +838,11 @@ Both live on **All jobs**, on the row itself.
 
 **edit** rewrites the posting — title, client, platform, either link. There is
 one job row, so the correction reaches every profile holding it, the new-jobs
-lists included, straight away. It is offered only to whoever *found* the job:
+lists included, straight away. Correcting the same fields **on your own sheet**
+does the same thing, and only for fields you actually changed: comparing the
+sheet against the job instead would make every save an assertion about every
+field, so re-saving an untouched sheet would stamp its old wording back over a
+colleague's correction. It is offered only to whoever *found* the job:
 somebody who typed it onto their own sheet, or whose imported history carries
 it. Being dispatched a job and marking it applied does not make it yours to
 rewrite. Two BDs who both typed the same posting in both found it, and both
@@ -847,9 +854,23 @@ link turns out to be a posting already recorded separately the edit is refused
 rather than merging them, because fusing two job rows would take two profiles'
 histories with it.
 
-**withdraw** takes back one profile's application. The job row stays, so
-colleagues who applied to it keep their record; only that profile's entry goes,
-and the job becomes one that profile can be offered again.
+**delete** takes the entry out, properly. A withdrawn job used to hide in four
+places, and leaving any one of them put it back on screen — so all four go: the
+row on the profile's sheet (otherwise the next automatic rebuild re-reads it and
+files the application again, ten minutes later), the per-cycle record, the
+dispatched row on the list, and the all-time application.
+
+The posting itself goes too, **unless** somebody else is still holding it:
+
+| Still there | What happens |
+|---|---|
+| Another profile applied to it | Kept. Their record is not this person's to delete. |
+| A client replied — an interview or assessment | Kept. A reply is the rarest row in the system and outlives the application that earned it. |
+| Only other people's *to-do* rows | Deleted, and those rows with it. An assignment is a suggestion the build produced, not work — it existed only because somebody found the job. |
+
+The same **delete** sits on each row of **Own jobs**. A row that has been through
+a build is a job in the record as well as a line on the sheet, so it is deleted
+from both; a row that has never been built is simply dropped.
 
 ---
 

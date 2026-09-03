@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { api, safeUrl } from "../api.js";
+import { api, deletedLabel, safeUrl } from "../api.js";
 import { DateRange, Loading, STAGE_LABELS } from "./widgets.jsx";
 import { useToast } from "./shell.jsx";
 
@@ -134,21 +134,21 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
   const withdraw = async (row) => {
     const label = row.title || row.company || "this job";
     const ok = window.confirm(
-      "Withdraw " + row.profile + "'s application to " + label + "?\n\n"
-      + "The posting itself stays, so colleagues who applied to it keep their "
-      + "record. Only this profile's entry goes, and the job becomes one this "
-      + "profile can be offered again.");
+      "Delete " + label + " from " + row.profile + "'s record?\n\n"
+      + "The row goes, the application behind it goes, and the posting itself "
+      + "goes unless a colleague also applied to it — in which case they keep "
+      + "theirs. It comes off the sheet too, so a rebuild cannot bring it back.");
     if (!ok) return;
     setBusy(true);
     try {
-      await api.deleteEntry(row.job_id, row.profile_id);
+      const result = await api.deleteEntry(row.job_id, row.profile_id);
       setData((current) => current && {
         ...current,
         rows: current.rows.filter(
           (r) => !(r.job_id === row.job_id && r.profile_id === row.profile_id)),
         total: Math.max(0, (current.total || 1) - 1),
       });
-      toast(row.profile + "'s entry was withdrawn.");
+      toast(deletedLabel(result, label));
     } catch (err) {
       toast(err.message, "bad");
     } finally {
@@ -279,8 +279,10 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
                         {row.can_delete && (
                           <> · <button className="link" disabled={busy}
                                   onClick={() => withdraw(row)}
-                                  title={"Withdraw " + row.profile + "'s entry. The posting stays."}>
-                            withdraw
+                                  title={"Delete this from " + row.profile
+                                    + "'s record. The posting goes too unless a "
+                                    + "colleague also applied to it."}>
+                            delete
                           </button></>
                         )}
                       </td>

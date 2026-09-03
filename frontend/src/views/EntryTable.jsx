@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../api.js";
+import { api, deletedLabel } from "../api.js";
 import { Loading } from "./widgets.jsx";
+import { useToast } from "./shell.jsx";
 
 const PLATFORM_OPTIONS = [
   "Indeed",
@@ -84,6 +85,25 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
   const lastCell = useRef(null);
   const lastSaved = useRef(null);
   const checked = useRef(new Map());               // link -> result, one ask per link
+  const toast = useToast();
+
+  /** Re-read the sheet from the server and take it as the truth.
+   *
+   * Used on arrival, and again after a delete. A delete is the one action
+   * whose effect on the sheet is decided on the server — it strips *every* row
+   * naming that posting, and a sheet can easily hold the same job twice —
+   * so guessing at the result here and saving the guess would put the
+   * duplicate straight back.
+   */
+  const reload = useCallback(async () => {
+    const data = await api.listEntries(batchId, profileId);
+    setRows(data.rows.length
+      ? data.rows.map((row) => ({ ...row, headline: row.headline || profileHeadline }))
+      : [blankRow(profileHeadline)]);
+    lastSaved.current = JSON.stringify(data.rows);
+    setState("idle");
+    return data;
+  }, [batchId, profileId, profileHeadline]);
 
   useEffect(() => {
     let live = true;
@@ -114,6 +134,11 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
       const result = await api.saveEntries(batchId, profileId, payload);
       lastSaved.current = signature;
       setState("saved");
+      if (result.corrected > 0) {
+        toast(result.corrected === 1
+          ? "One posting was corrected for everyone holding it."
+          : result.corrected + " postings were corrected for everyone holding them.");
+      }
       onSaved?.(result);
       return true;
     } catch (err) {
@@ -121,7 +146,7 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
       setState("error");
       return false;
     }
-  }, [batchId, profileId, onSaved]);
+  }, [batchId, profileId, onSaved, toast]);
 
   const edit = (index, key, value) => {
     setRows((current) => current.map((row, i) => (i === index ? { ...row, [key]: value } : row)));
@@ -167,14 +192,51 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
     });
   };
 
-  const removeRow = (index) => {
-    setRows((current) => {
-      const next = current.filter((_, i) => i !== index);
-      const safe = next.length ? next : [blankRow(profileHeadline)];
-      save(safe);
-      return safe;
-    });
+  /** Take a row off the sheet — and out of the database, if it reached it.
+   *
+   * A row that has been through a build is not only a line on this sheet any
+   * more: it is a job, an application, and possibly a dispatched row on
+   * somebody's list. Removing it here and nowhere else left all three behind,
+   * and the next automatic rebuild read the sheet again and put the
+   * application straight back. So a row that is in the record is withdrawn
+   * from the record, and one that never got there is simply dropped.
+   */
+  const removeRow = async (index) => {
+    const row = rows[index];
+    const label = row?.title || row?.company || "this row";
+
+    if (row?.job_id && row?.in_record) {
+      const ok = window.confirm(
+        "Delete " + label + " from " + profileName + "'s record?\n\n"
+        + "This removes the row, the application behind it and the job itself "
+        + "unless a colleague also applied to it — in which case they keep "
+        + "theirs. It will not come back on the next rebuild.");
+      if (!ok) return;
+      try {
+        const result = await api.deleteEntry(row.job_id, profileId);
+        setWarning(null);
+        // Forget any earlier answer about this link. The posting may be gone
+        // now, and re-adding it should not be met with a stale duplicate
+        // warning about the entry that was just deleted.
+        checked.current.delete(String(row.url || "").trim());
+        // Hand the tab its new counts from what the server just returned.
+        // Passing an empty object here blanked them, so the "Own jobs" tab
+        // read 0 until the screen was reloaded.
+        const fresh = await reload();
+        onSaved?.({ row_count: fresh.row_count, usable_count: fresh.usable_count,
+                    filename: fresh.filename });
+        toast(deletedLabel(result, label));
+      } catch (err) {
+        toast(err.message, "bad");
+      }
+      return;
+    }
+
+    const next = rows.filter((_, i) => i !== index);
+    const safe = next.length ? next : [blankRow(profileHeadline)];
+    setRows(safe);
     setWarning((w) => (w && w.index === index ? null : w));
+    save(safe);
   };
 
   // Focus the first cell of a freshly added row so you can just start typing.
@@ -230,7 +292,7 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
   return (
     <div className="stack" style={{ gap: 10 }}>
       {warning && (
-        <DuplicateNotice
+        <DuplicateDialog
           {...warning}
           profileName={profileName}
           onIgnore={() => {
@@ -304,9 +366,15 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
                     </td>
                   );
                 })}
-                <td style={{ textAlign: "center", padding: 3 }}>
-                  <button className="link" title="Remove this row"
-                          onClick={() => removeRow(index)}>&times;</button>
+                <td style={{ textAlign: "center", padding: 3, whiteSpace: "nowrap" }}>
+                  <button className="link"
+                          title={row.in_record
+                            ? "Delete this job — the row, the application and the "
+                              + "posting itself unless a colleague also applied."
+                            : "Remove this row. It has not been filed anywhere yet."}
+                          onClick={() => removeRow(index)}>
+                    {row.in_record ? "delete" : "\u00D7"}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -343,6 +411,16 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
         </div>
       )}
 
+      {rows.some((r) => r.in_record) && (
+        <p className="hint" style={{ marginTop: 3 }}>
+          Rows marked <b>delete</b> have been through a build, so they are a job
+          in the record as well as a line here. Correcting the title, client,
+          platform or description link on one of those corrects the posting for
+          everyone holding it. Changing the <b>job link</b> does not — that names
+          a different posting, and the row becomes that job on the next build.
+        </p>
+      )}
+
       <p className="hint" style={{ marginTop: 3 }}>
         Nothing is filed until you press <b>+ New entry</b> or <b>Save now</b>.
         <b> Enter</b> on the last row does the same and starts another. Paste a
@@ -354,6 +432,12 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
 
 /** What came back when a link turned out to be one already on record.
  *
+ * A dialog over the page rather than a line above the table. A banner in a
+ * scrolling grid is missed exactly when it matters — the BD has already moved
+ * to the next cell — and this has to be answered before the row is worth
+ * filling in. It takes the keyboard with it: Enter keeps the row, Escape
+ * closes, and focus lands on the button that does nothing destructive.
+ *
  * Two different findings, and conflating them would be wrong in opposite
  * directions. `mine` is this profile having already applied — a real duplicate,
  * one identity approaching one client twice, which is the thing this whole
@@ -362,27 +446,42 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
  * for running more than one profile. So the first is stated as a mistake and
  * the second as information.
  */
-function DuplicateNotice({ info, profileName, onIgnore, onRemove }) {
+function DuplicateDialog({ info, profileName, onIgnore, onRemove }) {
   const mine = info?.mine;
   const others = info?.others || [];
+  const keep = useRef(null);
+
+  useEffect(() => { keep.current?.focus(); }, []);
+
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") { event.preventDefault(); onIgnore(); }
+    if (event.key === "Enter") { event.preventDefault(); onIgnore(); }
+  };
 
   return (
-    <div className="notice gate" role="alert" style={{ borderLeftWidth: 3 }}>
-      <div className="stack" style={{ gap: 8 }}>
-        <div>
-          <b style={{ fontFamily: "var(--display)" }}>
-            {mine ? "Duplicate entry found" : "Somebody else has applied to this"}
-          </b>
+    <div className="scrim" onKeyDown={onKeyDown}
+         onMouseDown={(e) => e.target === e.currentTarget && onIgnore()}>
+      <div className="palette" role="alertdialog" aria-modal="true"
+           aria-label={mine ? "Duplicate entry found" : "Already on record"}
+           style={{ padding: "var(--s5)", gap: 12, maxHeight: "none" }}>
+        <div className="stack" style={{ gap: 10 }}>
+          <div className="row" style={{ gap: 8, alignItems: "baseline" }}>
+            <span aria-hidden="true" style={{ fontSize: 18 }}>{mine ? "\u26A0" : "\u2139"}</span>
+            <b style={{ fontFamily: "var(--display)", fontSize: "var(--t-lg)" }}>
+              {mine ? "Duplicate entry found" : "Already on record"}
+            </b>
+          </div>
+
           {mine ? (
-            <p style={{ marginTop: 4 }}>
+            <p style={{ margin: 0 }}>
               <b>{profileName}</b> already applied to this posting
               {mine.applied_on ? <> on <b>{mine.applied_on}</b></> : null}
               {mine.logged && !mine.applied_on ? <> — logged {mine.logged}</> : null}.
               {" "}Applying twice under one identity is the same person approaching
-              the client for a second time.
+              the client a second time.
             </p>
           ) : (
-            <p style={{ marginTop: 4 }}>
+            <p style={{ margin: 0 }}>
               This posting is already on record, under
               {" "}{others.slice(0, 3).map((o, i) => (
                 <span key={`${o.profile_id}-${i}`}>
@@ -395,23 +494,21 @@ function DuplicateNotice({ info, profileName, onIgnore, onRemove }) {
               candidate — but it is worth knowing before you spend the time.
             </p>
           )}
-        </div>
 
-        {mine && others.length > 0 && (
+          {mine && others.length > 0 && (
+            <p className="hint" style={{ margin: 0 }}>
+              Also applied for by {others.map((o) => o.profile).join(", ")}.
+            </p>
+          )}
+
+          <div className="row" style={{ gap: 10, marginTop: 2 }}>
+            <button ref={keep} onClick={onIgnore}>Ignore — keep this row</button>
+            <button className="ghost" onClick={onRemove}>Remove the row</button>
+          </div>
           <p className="hint" style={{ margin: 0 }}>
-            Also applied for by {others.map((o) => o.profile).join(", ")}.
+            Ignoring is remembered for this link, so you will not be asked again.
           </p>
-        )}
-
-        <div className="row" style={{ gap: 10 }}>
-          <button className="ghost" onClick={onIgnore}>
-            Ignore — keep this row
-          </button>
-          <button className="link" onClick={onRemove}>Remove the row</button>
         </div>
-        <p className="hint" style={{ margin: 0 }}>
-          Ignoring is remembered for this link, so you will not be asked about it again.
-        </p>
       </div>
     </div>
   );

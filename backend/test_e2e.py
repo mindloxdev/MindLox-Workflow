@@ -206,7 +206,12 @@ def test_two_profiles_may_receive_the_same_job(client, admin, new_profile):
     """The behaviour the whole redesign is for: one posting, two candidates."""
     khuram = new_profile("ali@example.com")
     zahid = new_profile("sara@example.com")
-    scout = new_profile("hina@example.com", "Full Stack Engineer")
+    # The same headline as the other two. Cover mode only offers a job to
+    # profiles sharing a headline with whoever applied to it, so a scout billed
+    # as a Full Stack Engineer — which is what this said before the headline
+    # gate existed — could never hand anything to two AI Engineers, and the
+    # test was asserting on an empty list.
+    scout = new_profile("hina@example.com")
 
     batch_id = open_cycle(client, admin, "Shared")
     hand_in(client, batch_id, token(client, "hina@example.com"), scout, sheet(range(2000, 2010)))
@@ -217,6 +222,15 @@ def test_two_profiles_may_receive_the_same_job(client, admin, new_profile):
     a = {j["url"] for j in listing(client, batch_id, khuram, token(client, "ali@example.com"))}
     b = {j["url"] for j in listing(client, batch_id, zahid, token(client, "sara@example.com"))}
     assert len(a & b) == 10, "both should be offered the ten jobs neither has touched"
+
+    # And the gate itself: a profile selling something else is not offered them.
+    outsider = new_profile("hina@example.com", "Full Stack Engineer")
+    hand_in(client, batch_id, token(client, "hina@example.com"), outsider,
+            sheet(range(2300, 2305)))
+    assert client.post(f"/api/batches/{batch_id}/compute", headers=admin).status_code == 200
+    theirs = {j["url"] for j in listing(client, batch_id, outsider,
+                                        token(client, "hina@example.com"))}
+    assert not (theirs & a), "a different headline is a different market"
 
 
 def test_rebuilding_gives_the_same_answer(client, admin, new_profile):
