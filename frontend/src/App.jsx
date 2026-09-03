@@ -21,7 +21,7 @@ import { CommandPalette, ThemeToggle, ToastHost } from "./views/shell.jsx";
 
 const TABS = {
   admin: [
-    { view: "dashboard", label: "Overview" },
+    { view: "dashboard", label: "Progress" },
     { view: "work", label: "Cycles" },
     { view: "people", label: "People" },
   ],

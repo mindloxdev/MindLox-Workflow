@@ -73,6 +73,15 @@ def _working_day(value: Optional[dt.datetime]) -> Optional[dt.date]:
     return None if value is None else to_working(value).date()
 
 
+def _application_day(applied_on: Optional[str], created_at: Optional[dt.datetime]) -> Optional[dt.date]:
+    """Use the date the BD entered, with a timestamp fallback for old rows."""
+    text = (applied_on or "").strip()[:10]
+    try:
+        return dt.date.fromisoformat(text) if text else _working_day(created_at)
+    except ValueError:
+        return _working_day(created_at)
+
+
 def _today() -> dt.date:
     return working_today()
 
@@ -106,17 +115,13 @@ def activity(db: Session, profile_ids: Optional[Sequence[int]] = None,
     if profile_ids is not None and not profile_ids:
         return [{"day": day.isoformat(), "count": 0} for day in window]
 
-    # A day either side of the window in UTC: which working day a timestamp
-    # belongs to is decided after the conversion, not by the filter.
-    cutoff = (dt.datetime.now(dt.timezone.utc)
-              - dt.timedelta(days=days + 1)).replace(tzinfo=None)
-    query = select(Application.created_at).where(Application.created_at >= cutoff)
+    query = select(Application.applied_on, Application.created_at)
     if profile_ids is not None:
         query = query.where(Application.profile_id.in_(list(profile_ids)))
 
     tally: Counter = Counter()
-    for (stamp,) in db.execute(query).all():
-        day = _working_day(stamp)
+    for applied_on, created_at in db.execute(query).all():
+        day = _application_day(applied_on, created_at)
         if (day is not None and
             (date_from is None or day >= date_from) and
             (date_to is None or day <= date_to)):
@@ -238,13 +243,16 @@ def cycle_stats(db: Session, batch_id: Optional[int],
 def all_time(db: Session, date_from: Optional[dt.date] = None,
              date_to: Optional[dt.date] = None) -> dict[int, int]:
     """Applications each profile has ever recorded, across every cycle."""
-    query = select(Application.profile_id, func.count(Application.id))
-    if date_from:
-        query = query.where(Application.created_at >= dt.datetime.combine(date_from, dt.time.min))
-    if date_to:
-        query = query.where(Application.created_at < dt.datetime.combine(date_to + dt.timedelta(days=1), dt.time.min))
-    return {profile_id: count for profile_id, count in db.execute(
-        query.group_by(Application.profile_id)).all() if profile_id is not None}
+    tally: Counter = Counter()
+    for profile_id, applied_on, created_at in db.execute(
+        select(Application.profile_id, Application.applied_on, Application.created_at)
+    ).all():
+        day = _application_day(applied_on, created_at)
+        if (profile_id is not None and
+            (date_from is None or (day and day >= date_from)) and
+            (date_to is None or (day and day <= date_to))):
+            tally[profile_id] += 1
+    return dict(tally)
 
 
 def last_logged(db: Session, date_from: Optional[dt.date] = None,
@@ -429,7 +437,7 @@ def range_report(db: Session, profile_ids: Optional[Sequence[int]],
     The two do not line up. A cycle opened on the 3rd is still being worked on
     the 20th, and an application logged on the 20th belongs to the 20th no
     matter which cycle put the job in front of somebody. So nothing here reads
-    `batches` at all: applications are dated by when they were recorded, work on
+    `batches` at all: applications are dated by the Applied on value, work on
     a list by when it was marked, and interviews by when they were held.
 
     Returns None when no range was asked for. The report is the answer to a
@@ -443,21 +451,17 @@ def range_report(db: Session, profile_ids: Optional[Sequence[int]],
 
     start, end = _window(date_from, date_to)
 
-    def in_window(query, column):
-        if start is not None:
-            query = query.where(column >= start)
-        if end is not None:
-            query = query.where(column < end)
-        return query
-
     # ── What went out ─────────────────────────────────────────────────────
-    applied = in_window(
-        select(Application.job_id, Application.profile_id, Application.batch_id,
-               Application.created_at),
-        Application.created_at)
+    applied = select(Application.job_id, Application.profile_id, Application.batch_id,
+                     Application.applied_on, Application.created_at)
     if profile_ids is not None:
         applied = applied.where(Application.profile_id.in_(list(profile_ids)))
-    rows = db.execute(applied).all()
+    rows = []
+    for row in db.execute(applied).all():
+        day = _application_day(row.applied_on, row.created_at)
+        if ((date_from is None or (day is not None and day >= date_from))
+                and (date_to is None or (day is not None and day <= date_to))):
+            rows.append(row)
 
     # Which of those the profile had put into the pool itself. A job it logged
     # on its own sheet has a batch_applications row; one it was handed off
@@ -466,7 +470,7 @@ def range_report(db: Session, profile_ids: Optional[Sequence[int]],
     # I sent this week, how much did I find.
     own: set[tuple[int, int, int]] = set()
     pairs = {(job_id, profile_id, batch_id)
-             for job_id, profile_id, batch_id, _ in rows if batch_id is not None}
+             for job_id, profile_id, batch_id, _, _ in rows if batch_id is not None}
     if pairs:
         for chunk in _chunks(sorted({job for job, _, _ in pairs})):
             for job_id, profile_id, batch_id in db.execute(
@@ -723,8 +727,14 @@ def profile_detail(db: Session, profile: Profile, batch: Optional[Batch],
         for record, job in db.execute(
             select(Application, Job).join(Job, Job.id == Application.job_id)
             .where(Application.profile_id == profile.id)
-            .order_by(Application.id.desc()).limit(RECENT_ROWS)).all()
+            .order_by(Application.id.desc())).all()
+        if (not date_from and not date_to) or
+           ((not date_from or (_application_day(record.applied_on, record.created_at)
+                               and _application_day(record.applied_on, record.created_at) >= date_from))
+            and (not date_to or (_application_day(record.applied_on, record.created_at)
+                                 and _application_day(record.applied_on, record.created_at) <= date_to)))
     ]
+    recent = recent[:RECENT_ROWS]
 
     recent_cycles = db.scalars(select(Batch).order_by(Batch.id.desc()).limit(6)).all()
     per_cycle = []

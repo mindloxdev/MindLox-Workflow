@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api, safeUrl } from "../api.js";
-import { Loading, STAGE_LABELS } from "./widgets.jsx";
+import { DateRange, Loading, STAGE_LABELS } from "./widgets.jsx";
 import { useToast } from "./shell.jsx";
 
 /** Every job ever applied for, searchable, with an interview one click away.
@@ -21,6 +21,7 @@ const PAGE = 50;
 export default function JobRecord({ profiles = [], onOpenInterviews }) {
   const [q, setQ] = useState("");
   const [profileId, setProfileId] = useState("");
+  const [dateRange, setDateRange] = useState({ dateFrom: "", dateTo: "" });
   const [data, setData] = useState(null);
   const [page, setPage] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -31,11 +32,12 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
   const [stage, setStage] = useState("screening");
   const typing = useRef(null);
 
-  const load = useCallback(async (search, who, at) => {
+  const load = useCallback(async (search, who, at, range) => {
     setBusy(true);
     try {
       setData(await api.jobRecord({
         q: search, profileId: who || null, limit: PAGE, offset: at * PAGE,
+        dateFrom: range.dateFrom, dateTo: range.dateTo,
       }));
     } catch (err) {
       toast(err.message, "bad");
@@ -48,13 +50,20 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
   // pause is the signal that somebody has finished pasting.
   useEffect(() => {
     clearTimeout(typing.current);
-    typing.current = setTimeout(() => load(q, profileId, page), q ? 250 : 0);
+    typing.current = setTimeout(() => load(q, profileId, page, dateRange), q ? 250 : 0);
     return () => clearTimeout(typing.current);
-  }, [q, profileId, page, load]);
+  }, [q, profileId, page, dateRange, load]);
 
   // A new search starts at the beginning. Without this, searching from page
   // four shows an empty result and reads as "nothing found".
-  useEffect(() => { setPage(0); }, [q, profileId]);
+  useEffect(() => { setPage(0); }, [q, profileId, dateRange]);
+
+  const showToday = () => {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York",
+      year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+    const value = `${parts.find((p) => p.type === "year")?.value}-${parts.find((p) => p.type === "month")?.value}-${parts.find((p) => p.type === "day")?.value}`;
+    setDateRange({ dateFrom: value, dateTo: value });
+  };
 
   const start = async (row) => {
     setBusy(true);
@@ -111,6 +120,14 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
             </select>
           </div>
         )}
+        <div style={{ flex: "0 1 auto" }}>
+          <label>Applied date</label>
+          <div className="row" style={{ marginTop: 4, gap: 8 }}>
+            <button className={!dateRange.dateFrom && !dateRange.dateTo ? "ghost" : ""}
+                    onClick={showToday}>Today</button>
+            <DateRange {...dateRange} onChange={setDateRange} />
+          </div>
+        </div>
         <div className="row" style={{ alignItems: "flex-end", gap: 8 }}>
           <span className="muted">
             {busy ? "Searching…"

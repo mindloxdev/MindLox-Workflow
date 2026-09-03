@@ -261,7 +261,8 @@ function ProfileDetail({ profileId, batchId, dateRange, onClose }) {
  * switch that decides whether they get it sitting on top of it. Checking what
  * you are about to show somebody and showing it are then the same act.
  */
-function PersonView({ person, batchId, dateRange, onBatchChange, onClose, onToggle, busy }) {
+function PersonView({ person, batchId, dateRange, onBatchChange, onDateRangeChange,
+                      onClose, onToggle, busy }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
 
@@ -285,6 +286,7 @@ function PersonView({ person, batchId, dateRange, onBatchChange, onClose, onTogg
           </p>
         </div>
         <div className="row">
+          <DateRange {...dateRange} onChange={onDateRangeChange} />
           <label className="row" style={{ gap: 8 }}>
             <input type="checkbox" checked={open} disabled={busy}
                    onChange={(e) => onToggle(person, e.target.checked)} />
@@ -348,7 +350,6 @@ export default function ManagerDashboard({ onOpenBatches }) {
   const [openProfile, setOpenProfile] = useState(null);
   const [openPerson, setOpenPerson] = useState(null);
   const [openDev, setOpenDev] = useState(null);
-  const [expanded, setExpanded] = useState(null);
   const [note, setNote] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -425,7 +426,7 @@ export default function ManagerDashboard({ onOpenBatches }) {
     <div className="stack">
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
-          <h1>Dashboard</h1>
+          <h1>Progress</h1>
           <p className="muted" style={{ marginTop: 3 }}>
             {batch
               ? <>Cycle <b>{batch.name}</b> · {batch.status === "open" ? "running" : "closed"}
@@ -654,8 +655,8 @@ export default function ManagerDashboard({ onOpenBatches }) {
             <tbody>
               {people.map((person) => (
                 <React.Fragment key={person.user_id}>
-                  <tr style={{ cursor: "pointer" }}
-                      onClick={() => setExpanded(expanded === person.user_id ? null : person.user_id)}>
+                    <tr style={{ cursor: "pointer" }}
+                      onClick={() => { setOpenPerson(person); setOpenProfile(null); }}>
                     <td>
                       <b>{person.name}</b>
                       {person.role === "admin" && <span className="pill" style={{ marginLeft: 6 }}>manager</span>}
@@ -697,26 +698,6 @@ export default function ManagerDashboard({ onOpenBatches }) {
                       </div>
                     </td>
                   </tr>
-                  {expanded === person.user_id && (
-                    <tr>
-                      <td colSpan={10} style={{ background: "var(--paper)" }}>
-                        {person.profiles.length ? (
-                          <div className="row" style={{ gap: 8 }}>
-                            <span className="muted">Runs:</span>
-                            {person.profiles.map((p) => (
-                              <button key={p.id} className="ghost" onClick={() => setOpenProfile(p.id)}>
-                                {p.name}
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="muted">
-                            No profile assigned. They cannot hand anything in until one is.
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  )}
                 </React.Fragment>
               ))}
               {!people.length && (
@@ -733,6 +714,7 @@ export default function ManagerDashboard({ onOpenBatches }) {
           batchId={batchId || batch?.id}
           dateRange={dateRange}
           onBatchChange={setBatchId}
+          onDateRangeChange={setDateRange}
           onToggle={togglePerson}
           busy={saving}
           onClose={() => setOpenPerson(null)} />

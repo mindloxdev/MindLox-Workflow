@@ -90,6 +90,7 @@ export const api = {
   me: () => request("/auth/me"),
 
   listUsers: () => request("/users"),
+  listDevelopers: () => request("/developers"),
   createUser: (payload) => request("/users", { method: "POST", body: payload }),
   updateUser: (id, payload) => request(`/users/${id}`, { method: "PATCH", body: payload }),
   deactivateUser: (id) => request(`/users/${id}`, { method: "DELETE" }),
@@ -162,10 +163,12 @@ export const api = {
 
   // Every job applied for, all-time and searchable. Not scoped to a cycle: a
   // client's reply arrives long after the cycle that earned it closed.
-  jobRecord: ({ q = "", profileId = null, limit = 50, offset = 0 } = {}) => {
+  jobRecord: ({ q = "", profileId = null, dateFrom = "", dateTo = "", limit = 50, offset = 0 } = {}) => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     if (profileId) params.set("profile_id", String(profileId));
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
     params.set("limit", String(limit));
     params.set("offset", String(offset));
     return request(`/jobs?${params.toString()}`);

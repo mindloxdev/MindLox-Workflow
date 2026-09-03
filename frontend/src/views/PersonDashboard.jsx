@@ -201,6 +201,22 @@ export default function PersonDashboard({
           The last fortnight, Eastern time.
         </p>
         <div className="card pad"><Sparkline series={data.activity} /></div>
+        <div className="card scroll" style={{ marginTop: 8 }}>
+          <table>
+            <thead><tr><th>Day</th><th className="num">Jobs logged</th></tr></thead>
+            <tbody>
+              {data.activity.map((day) => (
+                <tr key={day.day}>
+                  <td>{day.day}</td>
+                  <td className="mono num"><b>{day.count}</b></td>
+                </tr>
+              ))}
+              {!data.activity.length && (
+                <tr><td colSpan={2} className="muted">No jobs logged in this range.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       {totals.duplicates > 0 && (

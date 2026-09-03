@@ -59,8 +59,8 @@ export default function Assessments({
   const [open, setOpen] = useState(null);
 
   useEffect(() => {
-    api.listUsers()
-      .then((users) => setDevelopers(users.filter((person) => person.is_active && person.role === "dev")))
+    api.listDevelopers()
+      .then(setDevelopers)
       .catch(() => setDevelopers([]));
   }, []);
 

@@ -528,6 +528,15 @@ def list_users(db: Session = Depends(get_db), _: User = Depends(admin_only)):
     return [user_json(u) for u in db.scalars(select(User).order_by(User.name)).all()]
 
 
+@app.get("/api/developers")
+def list_developers(db: Session = Depends(get_db), _: User = Depends(current_user)):
+    """Active developers are selectable when booking profile work."""
+    return [user_json(u) for u in db.scalars(
+        select(User).where(User.role == "dev", User.is_active == True)
+        .order_by(User.name)
+    ).all()]
+
+
 @app.post("/api/users", status_code=201)
 def create_user(body: UserIn, db: Session = Depends(get_db), _: User = Depends(admin_only)):
     if db.scalar(select(User).where(User.email == body.email.lower())):
@@ -1481,7 +1490,9 @@ JOB_PAGE = 50
 
 
 @app.get("/api/jobs")
-def job_record(q: str = "", profile_id: Optional[int] = None, limit: int = JOB_PAGE,
+def job_record(q: str = "", profile_id: Optional[int] = None,
+               date_from: Optional[dt.date] = None, date_to: Optional[dt.date] = None,
+               limit: int = JOB_PAGE,
                offset: int = 0, db: Session = Depends(get_db),
                user: User = Depends(current_user)):
     """Everything applied for, all-time, newest first, searchable.
@@ -1511,6 +1522,8 @@ def job_record(q: str = "", profile_id: Optional[int] = None, limit: int = JOB_P
 
     limit = min(200, max(1, limit))
     offset = max(0, offset)
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(400, "The start date must be before the end date.")
 
     query = (select(Application, Job, Profile)
              .join(Job, Job.id == Application.job_id)
@@ -1529,11 +1542,23 @@ def job_record(q: str = "", profile_id: Optional[int] = None, limit: int = JOB_P
             func.lower(Profile.name).like(like),
         ))
 
-    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
-    rows = db.execute(
-        query.order_by(Application.created_at.desc(), Application.id.desc())
-        .limit(limit).offset(offset)
-    ).all()
+    ordered = db.execute(query.order_by(Application.created_at.desc(), Application.id.desc())).all()
+    if date_from or date_to:
+        filtered = []
+        for row in ordered:
+            applied = (row[0].applied_on or "")[:10]
+            try:
+                applied_day = dt.date.fromisoformat(applied)
+            except ValueError:
+                continue
+            if date_from and applied_day < date_from:
+                continue
+            if date_to and applied_day > date_to:
+                continue
+            filtered.append(row)
+        ordered = filtered
+    total = len(ordered)
+    rows = ordered[offset:offset + limit]
 
     return {
         "rows": [{

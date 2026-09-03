@@ -68,8 +68,8 @@ export default function Interviews({
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    api.listUsers()
-      .then((users) => setDevelopers(users.filter((person) => person.is_active && person.role === "dev")))
+    api.listDevelopers()
+      .then(setDevelopers)
       .catch(() => setDevelopers([]));
   }, []);
 
