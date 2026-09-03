@@ -213,12 +213,16 @@ export default function BdHome({ pane = null, onPaneSeen }) {
   // land well for this profile — or badly — wants that run of jobs together,
   // and a tag you can read but not filter on cannot answer that.
   const needle = filter.trim().toLowerCase();
+  // Newest posting first. Sorted on `found_on` — when the colleague who put
+  // this job into the pool applied to it. It used to sort on `applied_on`,
+  // which is this profile's own date and is empty on every row of this list by
+  // definition, so the sort silently did nothing but fall through to the title.
   const orderedSheet = [...newJobs].sort((left, right) => {
-    if (left.applied_on && right.applied_on) {
-      return right.applied_on.localeCompare(left.applied_on);
+    if (left.found_on && right.found_on) {
+      return right.found_on.localeCompare(left.found_on);
     }
-    if (left.applied_on) return -1;
-    if (right.applied_on) return 1;
+    if (left.found_on) return -1;
+    if (right.found_on) return 1;
     return (left.title || "").localeCompare(right.title || "");
   });
   const visible = needle
@@ -637,7 +641,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                     <table>
                       <thead>
                         <tr>
-                          <th>Job</th><th>Company</th><th>Found by</th><th>Platform</th><th>Applied on</th>
+                          <th>Job</th><th>Company</th><th>Found by</th><th>Platform</th><th>Found on</th>
                           <th style={{ minWidth: 220 }}>Link</th><th>Status</th>
                         </tr>
                       </thead>
@@ -670,8 +674,16 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                               ) : <span className="muted">—</span>}
                             </td>
                             <td className="muted">{job.platform || "—"}</td>
-                            <td className="mono muted" style={{ whiteSpace: "nowrap", fontSize: 12 }}>
-                              {job.applied_on || "—"}
+                            {/* When the posting was found, not when this
+                                profile applied — it has not, which is why the
+                                row is here. Reading a job as three days old or
+                                three weeks old is what decides whether the
+                                link is still worth opening. */}
+                            <td className="mono muted" style={{ whiteSpace: "nowrap", fontSize: 12 }}
+                                title={job.found_by?.length
+                                  ? `When ${job.found_by.join(", ")} applied to it`
+                                  : "When this posting first came into the system"}>
+                              {job.found_on || "—"}
                             </td>
                             <td>
                               {/* The link itself, not the word "open" over the top of it.

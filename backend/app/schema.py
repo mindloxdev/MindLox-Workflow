@@ -42,7 +42,7 @@ Everything below is idempotent. A brand new database skips it entirely.
 """
 from __future__ import annotations
 
-from sqlalchemy import Engine, MetaData, Table, inspect, insert, select, text
+from sqlalchemy import Engine, MetaData, Table, inspect, insert, or_, select, text
 
 from .models import Base
 
@@ -134,6 +134,7 @@ def bring_up_to_date(engine: Engine) -> None:
     if "profile_id" not in {c["name"] for c in inspector.get_columns("uploads")}:
         _upgrade_from_v1(engine)
     _add_later_columns(engine)
+    _backfill_blank_platforms(engine)
 
 
 def _add_later_columns(engine: Engine) -> None:
@@ -179,6 +180,59 @@ def _backfill_usable_counts(engine: Engine) -> None:
                 usable = row_count or 0        # unreadable sheet: say what it said
             conn.execute(text("UPDATE uploads SET usable_count = :n WHERE id = :i"),
                          {"n": usable, "i": upload_id})
+
+
+def _backfill_blank_platforms(engine: Engine) -> None:
+    """Fill in the platform of every posting that has one on a sheet already.
+
+    `build_lists` used to set a job's platform only at the moment it created
+    the row, and never afterwards. So a job first built from a sheet whose
+    Platform column had not been mapped yet — or from the one colleague who
+    left the cell blank — kept an empty platform for good, and read as "—" on
+    the all-jobs record and the new-jobs list even though the sheet behind it
+    named the board all along. The build now fills the gap on every pass, but
+    only for the cycle being built; the jobs already stranded are repaired
+    here, once.
+
+    Only blanks are touched, so this can never overwrite a correction somebody
+    made by hand, and running it twice does nothing the second time.
+    """
+    from . import ingest, matching             # here: schema.py imports at startup
+    tables = set(inspect(engine).get_table_names())
+    if not {"jobs", "uploads"} <= tables:
+        return
+    jobs = Base.metadata.tables["jobs"]
+    uploads = Base.metadata.tables["uploads"]
+    with engine.begin() as conn:
+        blank = conn.execute(
+            select(jobs.c.id, jobs.c.fingerprint)
+            .where(or_(jobs.c.platform.is_(None), jobs.c.platform == ""))).all()
+        if not blank:
+            return
+
+        # One pass over every sheet ever handed in, keeping the first platform
+        # each fingerprint is named with. Sheets are per profile per cycle, so
+        # this is thousands of rows at the outside, not millions.
+        named: dict[str, str] = {}
+        for raw, mapping in conn.execute(select(uploads.c.rows, uploads.c.mapping)).all():
+            try:
+                records = ingest.apply_mapping(raw or [], mapping or {})
+            except Exception:
+                continue                       # an unreadable sheet repairs nothing
+            for record in records:
+                platform = (record.get("platform") or "").strip()
+                if not platform:
+                    continue
+                fingerprint, _ = matching.fingerprint(
+                    record["url"], record["title"], record["company"])
+                if fingerprint:
+                    named.setdefault(fingerprint, platform[:120])
+
+        for job_id, fingerprint in blank:
+            platform = named.get(fingerprint)
+            if platform:
+                conn.execute(text("UPDATE jobs SET platform = :p WHERE id = :i"),
+                             {"p": platform, "i": job_id})
 
 
 def _upgrade_from_v1(engine: Engine) -> None:

@@ -31,8 +31,8 @@ from .models import (ASSESSMENT_CLOSED, ASSESSMENT_STATUSES, AVAILABILITY,
                      INTERVIEW_STAGES, INTERVIEW_STATUSES, MODES, ROLES, SPLIT,
                      Application, Assessment, Assignment, Base, Batch,
                      BatchApplication, Interview, Job, Profile, Setting, Upload,
-                     User, applied_stamp, from_working, next_stage, utcnow,
-                     working_label)
+                     User, applied_stamp, from_working, next_stage,
+                     to_working, utcnow, working_label)
 from .schema import bring_up_to_date
 
 def _database_url() -> str:
@@ -1109,9 +1109,11 @@ def build_lists(db: Session, batch: Batch) -> dict:
     fresh: list[Job] = []
     for record in records:
         fp = record["fp"]
-        if fp in seen:
-            continue
-        job = known.get(fp)
+        # Every record naming this posting is read, not just the first. Two
+        # sheets describe one job with different gaps in them — one has the
+        # platform, the other the description link — and taking only the first
+        # left the job permanently missing whatever that one sheet omitted.
+        job = seen.get(fp) or known.get(fp)
         if job is None:
             job = Job(fingerprint=fp, tier=record["tier"], title=record["title"][:500],
                       company=record["company"][:300],
@@ -1121,7 +1123,17 @@ def build_lists(db: Session, batch: Batch) -> dict:
             fresh.append(job)
         else:
             job.title = job.title or record["title"][:500]
-            job.company = job.company or record["company"][:300]
+            if not job.company and record["company"]:
+                job.company = record["company"][:300]
+                # The searchable form has to move with the name it is derived
+                # from, or the job stops matching the client it now says.
+                job.company_key = matching.normalize_text(job.company)[:300]
+            # Filled here as well as at creation. A job first built from a
+            # sheet whose Platform column was not yet mapped — or from a
+            # colleague who left the cell blank — kept an empty platform for
+            # good, and showed as "—" on every screen from then on even though
+            # the sheet behind it named the board all along.
+            job.platform = job.platform or record["platform"][:120]
             job.url = job.url or record["url"]
             # One colleague recording the description link is enough for
             # everybody: the job is one row and they all read it.
@@ -1529,43 +1541,76 @@ def report(batch_id: int, db: Session = Depends(get_db), _: User = Depends(admin
 # Assignments
 # --------------------------------------------------------------------------- #
 
-def _row_json(a: Assignment, j: Job, found_by: Optional[list[str]] = None,
-                            applied_on: str = "") -> dict:
+def _row_json(a: Assignment, j: Job, source: Optional[dict] = None,
+              applied_on: str = "") -> dict:
+    source = source or {}
     return {"id": a.id, "job_id": j.id, "status": a.status, "title": j.title,
             "company": j.company, "platform": j.platform, "url": j.url,
             "description_url": j.description_url or "",
-                        "applied_on": applied_on,
+            "applied_on": applied_on,
+            # When the posting was found — the stamp off the sheet of whoever
+            # put it into the pool, falling back to when it first entered the
+            # system. This is the only date a dispatched job can have: it is on
+            # this list precisely because this profile has *not* applied to it,
+            # so its own `applied_on` is empty until it does, and the column
+            # showed "—" on every row of the new-jobs list because of it.
+            "found_on": source.get("on") or _first_seen_stamp(j),
             "skip_reason": a.skip_reason or "",
             # Which profiles already applied to this one. It is why the job is
             # on this list at all — somebody else found it — and a BD reading
             # "found by Faizan" knows whose search to ask about when a whole
             # run of them is wrong for this profile.
-            "found_by": found_by or []}
+            "found_by": source.get("names") or []}
+
+
+def _first_seen_stamp(job: Job) -> str:
+    """When this posting first entered the system, on the team's clock.
+
+    The last resort behind a colleague's own "applied on". A sheet handed in
+    without a date column leaves every application off it unstamped, and a
+    dispatched job with no date at all reads as a job nobody can tell the age
+    of — which is the first thing a BD wants to know before opening the link.
+    """
+    if not job.first_seen:
+        return ""
+    return to_working(job.first_seen).strftime("%Y-%m-%d %H:%M")
 
 
 def _found_by(db: Session, job_ids: Iterable[int],
-              exclude: Optional[int] = None) -> dict[int, list[str]]:
-    """Which BDs have already applied to each of these jobs.
+              exclude: Optional[int] = None) -> dict[int, dict]:
+    """Who has already applied to each of these jobs, and when.
 
     The screen is about who actually applied, not the profile label they used.
     `exclude` drops the profile being shown the list — it is on there precisely
     because that profile has *not* applied, so naming it would be nonsense.
+
+    The date comes back with the names because it is the same fact: the job is
+    on this list because a colleague applied to it, and when they did is how
+    old the posting is. The newest wins when several people hold it — the most
+    recent proof the link was still live. Stamps are `YYYY-MM-DD HH:MM`, so
+    comparing them as text orders them correctly.
     """
     ids = [job_id for job_id in job_ids]
     if not ids:
         return {}
-    out: dict[int, list[str]] = defaultdict(list)
+    out: dict[int, dict] = defaultdict(lambda: {"names": [], "on": ""})
     for chunk in _chunks(ids):
-        for job_id, name, profile_id in db.execute(
-            select(Application.job_id, func.coalesce(User.name, Profile.name), Application.profile_id)
+        for job_id, name, profile_id, applied_on in db.execute(
+            select(Application.job_id, func.coalesce(User.name, Profile.name),
+                   Application.profile_id, Application.applied_on)
             .join(Profile, Profile.id == Application.profile_id)
             .outerjoin(User, User.id == Application.user_id)
             .where(Application.job_id.in_(chunk))
             .order_by(func.coalesce(User.name, Profile.name))
         ).all():
-            if profile_id != exclude:
-                out[job_id].append(name)
-    return out
+            if profile_id == exclude:
+                continue
+            found = out[job_id]
+            found["names"].append(name)
+            stamp = (applied_on or "").strip()
+            if stamp > found["on"]:
+                found["on"] = stamp
+    return dict(out)
 
 
 def _assignment_rows(db: Session, batch_id: int, profile_id: int) -> list[dict]:

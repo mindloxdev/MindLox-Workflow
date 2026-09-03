@@ -14,7 +14,7 @@ HEADER_FONT = Font(color="FFFFFF", bold=True, size=10)
 WIDTHS = {"#": 5, "Job title": 46, "Company": 26, "Client": 26, "Platform": 14, "Job link": 52,
           "Already tried by": 22, "Match ref": 30, "Metric": 34, "Value": 14,
           "BD": 20, "Applied by": 30, "People": 9, "Status": 12,
-          "Found by": 24, "Description link": 46,
+          "Found by": 24, "Found on": 18, "Description link": 46,
           "When · ET": 18, "Applied as": 20, "Developer": 20, "Role": 40,
           "Round": 16, "Outcome": 12, "Follows": 18, "Reported by": 20,
           "What": 40, "Due · ET": 18, "Set by": 20, "Submitted": 18,
@@ -59,11 +59,12 @@ def assignment_workbook(person: str, jobs: list[dict]) -> bytes:
     """
     book = Workbook()
     book.remove(book.active)
-    columns = ["#", "Job title", "Company", "Found by", "Platform", "Job link",
-               "Description link", "Status"]
+    columns = ["#", "Job title", "Company", "Found by", "Found on", "Platform",
+               "Job link", "Description link", "Status"]
     rows = [
         [i, j.get("title", ""), j.get("company", ""),
-         ", ".join(j.get("found_by") or []), j.get("platform", ""),
+         ", ".join(j.get("found_by") or []), j.get("found_on", ""),
+         j.get("platform", ""),
          j.get("url", ""), j.get("description_url", ""), j.get("status", "pending")]
         for i, j in enumerate(jobs, start=1)
     ]

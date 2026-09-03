@@ -179,6 +179,114 @@ def test_found_by_uses_bd_names_not_profile_names(client, admin, bd, other_bd, m
     assert "Pipe" not in " ".join(found), "not the profile label they applied under"
 
 
+def dated_sheet(job_ids, client_name="Northwind Digital", title="RAG Developer",
+                platform="", stamp=""):
+    """A sheet with the two columns the plain `sheet` helper leaves out.
+
+    `platform` and `stamp` are written as empty cells when not given, which is
+    the sheet a BD hands in having skipped those boxes — the case that stranded
+    a job with no platform on it for good.
+    """
+    out = io.StringIO()
+    out.write("Job Title,Company,Job URL,Platform,Applied on\n")
+    for n in job_ids:
+        out.write(f"{title} {n},{client_name},"
+                  f"https://www.upwork.com/jobs/~03{n:016x},{platform},{stamp}\n")
+    return out.getvalue().encode()
+
+
+def test_a_platform_typed_later_reaches_a_job_that_was_built_without_one(
+        client, admin, bd, make_profile):
+    """A posting first built off a sheet with no platform used to keep an empty
+    one for good — `build_lists` set it at creation and never again — so it read
+    as "—" on the all-jobs record forever after, with the board named on a sheet
+    all along."""
+    mine = make_profile()
+    theirs = make_profile()
+
+    blank = cycle(client, admin, f"NoPlat{next(_serial)}")
+    hand_in(client, blank, bd, mine["id"], dated_sheet(range(900, 906)))
+    hand_in(client, blank, bd, theirs["id"], dated_sheet(range(904, 910), "Sable Analytics"))
+    client.post(f"/api/batches/{blank}/compute", headers=admin)
+
+    record = client.get("/api/jobs", params={"q": "RAG Developer 900"}, headers=bd).json()
+    assert record["rows"], "the job was built"
+    assert record["rows"][0]["platform"] == "", "nothing named a board yet"
+
+    # The next cycle, with the column filled in this time.
+    named = cycle(client, admin, f"Plat{next(_serial)}")
+    hand_in(client, named, bd, mine["id"], dated_sheet(range(900, 906), platform="Indeed"))
+    hand_in(client, named, bd, theirs["id"],
+            dated_sheet(range(904, 910), "Sable Analytics", platform="Indeed"))
+    client.post(f"/api/batches/{named}/compute", headers=admin)
+
+    record = client.get("/api/jobs", params={"q": "RAG Developer 900"}, headers=bd).json()
+    assert record["rows"][0]["platform"] == "Indeed", "the sheet's board reaches the posting"
+
+
+def test_one_colleagues_platform_is_enough_for_the_shared_posting(
+        client, admin, bd, make_profile):
+    """Two sheets name one job and only one of them says where it came from.
+    The build reads every record for a fingerprint, not just the first, so which
+    sheet was read first stops deciding whether the posting has a platform."""
+    mine = make_profile()
+    theirs = make_profile()
+    batch = cycle(client, admin, f"Share{next(_serial)}")
+    hand_in(client, batch, bd, mine["id"], dated_sheet(range(930, 936)))
+    hand_in(client, batch, bd, theirs["id"], dated_sheet(range(930, 936), platform="LinkedIn"))
+    client.post(f"/api/batches/{batch}/compute", headers=admin)
+
+    record = client.get("/api/jobs", params={"q": "RAG Developer 930"}, headers=bd).json()
+    assert record["rows"], "the job was built"
+    assert {row["platform"] for row in record["rows"]} == {"LinkedIn"}
+
+
+def test_a_new_job_says_when_it_was_found(client, admin, bd, other_bd, make_profile):
+    """The new-jobs list carried a date column that was empty on every row: it
+    read this profile's own `applied_on`, and a job is on that list precisely
+    because this profile has not applied to it. What it can say is when the
+    colleague who found it applied, which is how old the posting is."""
+    mine = make_profile(bd_email="pl-bd@pipeline.example.com")
+    theirs = make_profile(bd_email="pl-bd2@pipeline.example.com")
+    batch = cycle(client, admin, f"FoundOn{next(_serial)}")
+    hand_in(client, batch, bd, mine["id"], dated_sheet(range(950, 956)))
+    hand_in(client, batch, other_bd, theirs["id"],
+            dated_sheet(range(953, 960), "Northwind Digital",
+                        platform="Indeed", stamp="2026-08-31 16:28"))
+    client.post(f"/api/batches/{batch}/compute", headers=admin)
+
+    jobs = client.get(f"/api/batches/{batch}/profiles/{mine['id']}/sheet",
+                      headers=bd).json()["jobs"]
+    dispatched = [job for job in jobs if job["found_by"]]
+    assert dispatched, "something was dispatched off the other BD's sheet"
+    assert all(job["found_on"] == "2026-08-31 16:28" for job in dispatched), (
+        "the stamp off the sheet of whoever found it")
+    assert all(job["applied_on"] == "" for job in dispatched), (
+        "this profile has not applied to it — that is why it is on the list")
+
+
+def test_a_job_nobody_dated_still_says_how_old_it_is(client, admin, bd, other_bd,
+                                                     make_profile):
+    """A sheet handed in with no date column leaves every application on it
+    unstamped. Falling back to when the posting first entered the system beats
+    a dash, because the first thing a BD wants to know is whether the link is
+    three days old or three months."""
+    mine = make_profile(bd_email="pl-bd@pipeline.example.com")
+    theirs = make_profile(bd_email="pl-bd2@pipeline.example.com")
+    batch = cycle(client, admin, f"NoDate{next(_serial)}")
+    hand_in(client, batch, bd, mine["id"], sheet(range(970, 976)))
+    hand_in(client, batch, other_bd, theirs["id"], sheet(range(973, 980), "Northwind Digital"))
+    client.post(f"/api/batches/{batch}/compute", headers=admin)
+
+    jobs = client.get(f"/api/batches/{batch}/profiles/{mine['id']}/sheet",
+                      headers=bd).json()["jobs"]
+    dispatched = [job for job in jobs if job["found_by"]]
+    assert dispatched
+    for job in dispatched:
+        assert len(job["found_on"]) == 16 and job["found_on"][4] == "-", (
+            f"a readable YYYY-MM-DD HH:MM, got {job['found_on']!r}")
+
+
 def test_the_record_is_searched_by_anything_pasted_out_of_an_email(client, bd, applied):
     """A person pasting out of a client's email has no idea which field the
     thing they copied lives in, so all of them are searched."""

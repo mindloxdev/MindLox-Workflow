@@ -568,7 +568,32 @@ input:focus-visible, select:focus-visible {
 
 /* ═══ Tables ══════════════════════════════════════════════════════════ */
 
-.scroll { overflow-x: auto; border-radius: var(--r3); }
+/* A table scrolls inside its own card rather than with the page, so the
+   header row can stay put above the rows passing under it.
+
+   `position: sticky` on `th` was already here and did nothing. `overflow-x:
+   auto` had already made this element the scrollport — a box cannot have
+   `visible` on one axis and `auto` on the other, so the browser was computing
+   `overflow-y: auto` too — and a scrollport with no height limit never
+   scrolls. The page scrolled instead, and the header, stuck to a container
+   that was not moving, went up the screen with its rows. A BD forty rows into
+   the record was reading unlabelled columns.
+
+   Capping the height gives the header something to stick to. A table shorter
+   than the cap never reaches it and behaves exactly as it did before. */
+.scroll {
+  overflow: auto;
+  /* Deliberately not a `min-height` as well: `min-height` beats `max-height`
+     whatever the specificity, so a floor here would stretch every three-row
+     table in the app to the same dead-space rectangle and would override the
+     tighter caps a few pickers set on themselves inline. */
+  max-height: calc(100vh - 200px);
+  /* Roughly the height of the pinned header. Tabbing from cell to cell down
+     the hand-entry sheet scrolls the next row into view, and without this the
+     browser parks it exactly under the header it cannot see. */
+  scroll-padding-top: 34px;
+  border-radius: var(--r3);
+}
 
 table {
   border-collapse: separate;
@@ -585,9 +610,17 @@ th {
   color: var(--faint);
   white-space: nowrap;
   background: var(--sunk);
+}
+/* Only the heading row pins. A `th` used as a row label lives in the body and
+   would otherwise ride to the top and sit on the header. The background above
+   is opaque in both themes, which is what stops rows showing through it, and
+   `border-collapse: separate` means the rule under it is drawn on the cell —
+   so it travels with the header instead of staying behind at the top of the
+   table. */
+thead th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
 }
 td {
   padding: 10px var(--s3);
