@@ -195,7 +195,11 @@ def test_a_messy_sheet_still_maps(client, admin, seeded):
                                # Nadia's sheet has no description column, and an
                                # empty string is the mapper saying so rather
                                # than guessing at one of the other five.
-                               "description_url": ""}
+                               "description_url": "",
+                               # Headline is a canonical field like the rest, so
+                               # auto_map reports on it too. No sheet carries a
+                               # column for it — it comes off the profile.
+                               "headline": ""}
 
 
 def test_two_profiles_may_receive_the_same_job(client, admin, new_profile):
@@ -242,7 +246,8 @@ def test_unworked_jobs_come_back_next_cycle(client, admin, new_profile):
     mine = listing(client, first, khuram, ali)
     assert len(mine) == 10, "the ten Zahid found and Khuram has not tried"
     client.patch(f"/api/assignments/{mine[0]['id']}", json={"status": "applied"}, headers=ali)
-    client.patch(f"/api/assignments/{mine[1]['id']}", json={"status": "skipped"}, headers=ali)
+    client.patch(f"/api/assignments/{mine[1]['id']}",
+                 json={"status": "skipped", "reason": "On-site only."}, headers=ali)
 
     # Skipping it takes it off the screen at once. There is nothing further to
     # do about a job this profile has turned down, and it never returns.
@@ -462,7 +467,8 @@ def test_a_rebuild_keeps_work_people_have_marked(client, admin, new_profile):
     mine = listing(client, batch_id, one, ali)
     assert len(mine) == 10
     client.patch(f"/api/assignments/{mine[0]['id']}", json={"status": "applied"}, headers=ali)
-    client.patch(f"/api/assignments/{mine[1]['id']}", json={"status": "skipped"}, headers=ali)
+    client.patch(f"/api/assignments/{mine[1]['id']}",
+                 json={"status": "skipped", "reason": "On-site only."}, headers=ali)
 
     client.post(f"/api/batches/{batch_id}/compute", headers=admin)
     after = listing(client, batch_id, one, ali)

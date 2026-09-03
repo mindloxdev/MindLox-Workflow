@@ -191,6 +191,31 @@ export const api = {
   devDashboard: (batchId, dateFrom, dateTo) => request(`/dashboard/dev${query(batchId, dateFrom, dateTo)}`),
   developerDashboard: (userId, batchId, dateFrom, dateTo) =>
     request(`/dashboard/devs/${userId}${query(batchId, dateFrom, dateTo)}`),
-  setStatus: (assignmentId, status) =>
-    request(`/assignments/${assignmentId}`, { method: "PATCH", body: { status } }),
+  // `reason` is required by the server when the status is "skipped" and
+  // ignored otherwise. A skip retires the job from this profile for good, so
+  // the manager gets to see why rather than only how many.
+  setStatus: (assignmentId, status, reason = "") =>
+    request(`/assignments/${assignmentId}`, { method: "PATCH", body: { status, reason } }),
+
+  // Has this posting been applied to before? Asked as the job link is typed,
+  // before the row is saved. Matched on the fingerprint, so the same job pasted
+  // with a tracking parameter still comes back as the same job.
+  checkDuplicate: ({ url = "", title = "", company = "", profileId = null } = {}) => {
+    const params = new URLSearchParams();
+    if (url) params.set("url", url);
+    if (title) params.set("title", title);
+    if (company) params.set("company", company);
+    if (profileId) params.set("profile_id", String(profileId));
+    return request(`/jobs/check?${params.toString()}`);
+  },
+
+  // Correcting a posting corrects it for everyone holding it — there is one
+  // row per job — so the server allows it only to whoever first logged it.
+  editJob: (jobId, payload) =>
+    request(`/jobs/${jobId}`, { method: "PATCH", body: payload }),
+
+  // Withdraw one profile's application to one job. The job row stays, because
+  // colleagues may hold it too.
+  deleteEntry: (jobId, profileId) =>
+    request(`/jobs/${jobId}/profiles/${profileId}`, { method: "DELETE" }),
 };

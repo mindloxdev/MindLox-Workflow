@@ -30,6 +30,11 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
   // Something was started this session, so offer the way to it.
   const [started, setStarted] = useState(false);
   const [stage, setStage] = useState("screening");
+  // The row being corrected, and the draft of it. A posting is one shared row,
+  // so this edit reaches every profile holding it — which is why the server
+  // only allows it to whoever first logged the job.
+  const [editing, setEditing] = useState(null);
+  const [draft, setDraft] = useState(null);
   const typing = useRef(null);
 
   const load = useCallback(async (search, who, at, range) => {
@@ -81,6 +86,69 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
       // which is where somebody would look for it anyway.
       toast(`${made.client || "That job"} is waiting on a time under ${made.profile}.`);
       setStarted(true);
+    } catch (err) {
+      toast(err.message, "bad");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const rowKey = (row) => `${row.job_id}-${row.profile_id}`;
+
+  const openEditor = (row) => {
+    if (editing === rowKey(row)) { setEditing(null); setDraft(null); return; }
+    setStarting(null);
+    setEditing(rowKey(row));
+    setDraft({
+      title: row.title || "", company: row.company || "",
+      platform: row.platform || "", url: row.url || "",
+      description_url: row.description_url || "",
+    });
+  };
+
+  const saveEdit = async (row) => {
+    setBusy(true);
+    try {
+      const saved = await api.editJob(row.job_id, draft);
+      // Patch the row in place rather than refetching. The correction is
+      // already the truth on the server, and a reload would throw away the
+      // page and the search that got somebody here.
+      setData((current) => current && {
+        ...current,
+        rows: current.rows.map((r) => (r.job_id === row.job_id
+          ? { ...r, title: saved.title, company: saved.company,
+              platform: saved.platform, url: saved.url,
+              description_url: saved.description_url }
+          : r)),
+      });
+      setEditing(null);
+      setDraft(null);
+      toast("Corrected. Everyone holding this posting sees the new wording.");
+    } catch (err) {
+      toast(err.message, "bad");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const withdraw = async (row) => {
+    const label = row.title || row.company || "this job";
+    const ok = window.confirm(
+      "Withdraw " + row.profile + "'s application to " + label + "?\n\n"
+      + "The posting itself stays, so colleagues who applied to it keep their "
+      + "record. Only this profile's entry goes, and the job becomes one this "
+      + "profile can be offered again.");
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.deleteEntry(row.job_id, row.profile_id);
+      setData((current) => current && {
+        ...current,
+        rows: current.rows.filter(
+          (r) => !(r.job_id === row.job_id && r.profile_id === row.profile_id)),
+        total: Math.max(0, (current.total || 1) - 1),
+      });
+      toast(row.profile + "'s entry was withdrawn.");
     } catch (err) {
       toast(err.message, "bad");
     } finally {
@@ -199,14 +267,67 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
                       <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                         <button className="link"
                                 onClick={() => setStarting(
-                                  starting === `${row.job_id}-${row.profile_id}`
-                                    ? null : `${row.job_id}-${row.profile_id}`)}>
-                          {starting === `${row.job_id}-${row.profile_id}`
-                            ? "never mind" : "they replied"}
+                                  starting === rowKey(row) ? null : rowKey(row))}>
+                          {starting === rowKey(row) ? "never mind" : "they replied"}
                         </button>
+                        {row.can_edit && (
+                          <> · <button className="link" onClick={() => openEditor(row)}
+                                  title="Correct the posting. There is one row per job, so this reaches everyone holding it.">
+                            {editing === rowKey(row) ? "cancel" : "edit"}
+                          </button></>
+                        )}
+                        {row.can_delete && (
+                          <> · <button className="link" disabled={busy}
+                                  onClick={() => withdraw(row)}
+                                  title={"Withdraw " + row.profile + "'s entry. The posting stays."}>
+                            withdraw
+                          </button></>
+                        )}
                       </td>
                     </tr>
-                    {starting === `${row.job_id}-${row.profile_id}` && (
+                    {editing === rowKey(row) && draft && (
+                      <tr>
+                        <td colSpan={8}>
+                          <div className="stack" style={{ gap: 9, padding: "10px 2px" }}>
+                            <div>
+                              <b style={{ fontFamily: "var(--display)" }}>
+                                Correct this posting
+                              </b>
+                              <p className="hint" style={{ marginTop: 3, maxWidth: 620 }}>
+                                There is one row per posting, so this correction reaches
+                                every profile holding it — the new-jobs lists included,
+                                straight away. Changing the link re-identifies the job,
+                                which is usually the point: a link typed wrongly is what
+                                splits one posting into two.
+                              </p>
+                            </div>
+                            <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+                              {[["title", "Job title"], ["company", "Company"],
+                                ["platform", "Platform"], ["url", "Job link"],
+                                ["description_url", "Description link"]].map(([key, label]) => (
+                                <label key={key} style={{ flex: "1 1 220px" }}>
+                                  {label}
+                                  <input style={{ width: "100%", marginTop: 4 }}
+                                         value={draft[key]}
+                                         onChange={(e) => setDraft(
+                                           (d) => ({ ...d, [key]: e.target.value }))} />
+                                </label>
+                              ))}
+                            </div>
+                            <div className="row" style={{ gap: 10 }}>
+                              <button onClick={() => saveEdit(row)} disabled={busy}>
+                                {busy ? "Saving…" : "Save for everyone"}
+                              </button>
+                              <button className="ghost"
+                                      onClick={() => { setEditing(null); setDraft(null); }}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {starting === rowKey(row) && (
                       <tr>
                         <td colSpan={8}>
                           <div className="stack" style={{ gap: 9, padding: "10px 2px" }}>

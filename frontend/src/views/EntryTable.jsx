@@ -55,13 +55,35 @@ const blankRow = (headline = "") => ({ url: "", title: "", company: "", descript
                           platform: "", date: stampNow(), headline });
 const isEmpty = (row) => IDENTIFYING.every((key) => !String(row[key] || "").trim());
 
-/** Rows typed in by hand, saved as this profile's sheet for the cycle. */
+/** Rows typed in by hand, saved as this profile's sheet for the cycle.
+ *
+ * NOTHING SAVES UNTIL YOU SAY SO. Every cell used to write to the server on
+ * blur, which meant a half-typed row — a link pasted before the title was in —
+ * was already the sheet, and a row abandoned mid-thought stayed. Now a row is
+ * committed when you press **+ New entry** to start the next one, or **Save
+ * now**, and until then what is on screen is a draft the server has not seen.
+ *
+ * THE LINK IS CHECKED AS IT IS TYPED. The job link is the first thing pasted
+ * and the field that identifies a posting, so it is the first moment anybody
+ * can be told they are about to log something twice. The check runs against
+ * the whole history, not this sheet, because the duplicate that matters is the
+ * one from three weeks ago that nobody remembers.
+ */
 export default function EntryTable({ batchId, profileId, profileName, profileHeadline = "", onSaved }) {
   const [rows, setRows] = useState([]);
-  const [state, setState] = useState("loading");   // loading | idle | saving | saved | error
+  const [state, setState] = useState("loading");   // loading | idle | dirty | saving | saved | error
   const [error, setError] = useState("");
+  // The row whose link has just come back as already applied for, and what was
+  // found. Null when there is nothing to say.
+  const [warning, setWarning] = useState(null);    // { index, info }
+  // Links the BD has been warned about and kept anyway. Keyed by the link
+  // itself rather than the row number, so inserting a row above does not
+  // resurrect a warning that was already answered.
+  const [ignored, setIgnored] = useState(() => new Set());
+  const [checking, setChecking] = useState(false);
   const lastCell = useRef(null);
   const lastSaved = useRef(null);
+  const checked = useRef(new Map());               // link -> result, one ask per link
 
   useEffect(() => {
     let live = true;
@@ -80,11 +102,12 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
   }, [batchId, profileId]);
 
   const save = useCallback(async (next) => {
-    // Blur fires whenever focus moves, so most calls have nothing new to say.
     const payload = next.filter((r) => !isEmpty(r));
     const signature = JSON.stringify(payload);
-    if (signature === lastSaved.current) return;
-
+    if (signature === lastSaved.current) {
+      setState("saved");
+      return true;
+    }
     setState("saving");
     setError("");
     try {
@@ -92,23 +115,56 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
       lastSaved.current = signature;
       setState("saved");
       onSaved?.(result);
+      return true;
     } catch (err) {
       setError(err.message);
       setState("error");
+      return false;
     }
   }, [batchId, profileId, onSaved]);
 
   const edit = (index, key, value) => {
     setRows((current) => current.map((row, i) => (i === index ? { ...row, [key]: value } : row)));
-    setState("idle");
+    setState("dirty");
   };
 
-  const addRow = () => {
+  /** Ask the server whether this posting has been applied for already.
+   *
+   * One ask per distinct link, remembered for the life of the screen — a blur
+   * fires every time focus moves, and re-asking the same question of the same
+   * link would be a request per keystroke in all but name.
+   */
+  const checkLink = useCallback(async (index, row) => {
+    const url = String(row.url || "").trim();
+    if (!url || ignored.has(url)) return;
+
+    let info = checked.current.get(url);
+    if (info === undefined) {
+      setChecking(true);
+      try {
+        info = await api.checkDuplicate({
+          url, title: row.title || "", company: row.company || "", profileId,
+        });
+        checked.current.set(url, info);
+      } catch {
+        return;                                    // never block typing on this
+      } finally {
+        setChecking(false);
+      }
+    }
+    if (info?.mine || info?.others?.length) setWarning({ index, info, url });
+  }, [ignored, profileId]);
+
+  const addRow = async () => {
+    // Pressing this is the commit. Everything typed so far goes to the server
+    // before the blank row appears, so "+ New entry" means the last one is
+    // filed rather than merely off the screen.
+    const ok = await save(rows);
+    if (!ok) return;
     setRows((current) => {
       lastCell.current = current.length;
       return [...current, blankRow(profileHeadline)];
     });
-    setState("idle");
   };
 
   const removeRow = (index) => {
@@ -118,6 +174,7 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
       save(safe);
       return safe;
     });
+    setWarning((w) => (w && w.index === index ? null : w));
   };
 
   // Focus the first cell of a freshly added row so you can just start typing.
@@ -126,6 +183,15 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
     document.getElementById(`cell-${lastCell.current}-url`)?.focus();
     lastCell.current = null;
   }, [rows.length]);
+
+  // A draft is only on screen, so leaving the page loses it. The browser's own
+  // dialog is the only thing that can interrupt a navigation in time.
+  useEffect(() => {
+    if (state !== "dirty") return undefined;
+    const warn = (event) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [state]);
 
   /** Pasting a block copied out of Excel fills across columns and down rows. */
   const onPaste = (index, key, event) => {
@@ -149,6 +215,8 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
         // A pasted block usually carries no date, or an empty trailing cell.
         if (!next[target].date) next[target].date = stampNow();
       });
+      // A paste is a deliberate act with everything already in it, so it is
+      // committed the way a finished row is.
       save(next);
       return next;
     });
@@ -161,6 +229,18 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
 
   return (
     <div className="stack" style={{ gap: 10 }}>
+      {warning && (
+        <DuplicateNotice
+          {...warning}
+          profileName={profileName}
+          onIgnore={() => {
+            setIgnored((current) => new Set(current).add(warning.url));
+            setWarning(null);
+          }}
+          onRemove={() => removeRow(warning.index)}
+        />
+      )}
+
       <div className="card scroll">
         <table>
           <thead>
@@ -187,7 +267,6 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
                           value={platformValue}
                           style={{ width: "100%", border: "1px solid transparent", background: "none" }}
                           onChange={(e) => edit(index, c.key, e.target.value)}
-                          onBlur={() => save(rows)}
                         >
                           <option value="">— select —</option>
                           {PLATFORM_OPTIONS.map((option) => (
@@ -213,7 +292,10 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
                                    color: c.key === "date" ? "var(--slate)" : undefined }}
                           onChange={(e) => edit(index, c.key, e.target.value)}
                           onPaste={(e) => onPaste(index, c.key, e)}
-                          onBlur={() => save(rows)}
+                          // The link is the only field checked as it is typed:
+                          // it is what identifies a posting, and the answer is
+                          // worth having before the rest of the row is filled in.
+                          onBlur={c.key === "url" ? () => checkLink(index, row) : undefined}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" && index === rows.length - 1) addRow();
                           }}
@@ -234,15 +316,21 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
 
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div className="row" style={{ gap: 10 }}>
-          <button onClick={addRow}>+ New entry</button>
+          <button onClick={addRow} disabled={state === "saving"}>+ New entry</button>
+          {state === "dirty" && (
+            <button className="ghost" onClick={() => save(rows)}>Save now</button>
+          )}
           <span className="muted">
             {filled} {filled === 1 ? "job" : "jobs"} recorded for {profileName}
           </span>
         </div>
         <span className="muted">
-          {state === "saving" && "Saving…"}
-          {state === "saved" && "Saved"}
-          {state === "error" && <span style={{ color: "var(--brick)" }}>{error}</span>}
+          {checking && "Checking the link…"}
+          {!checking && state === "dirty" &&
+            <span style={{ color: "var(--amber, var(--slate))" }}>Not saved yet</span>}
+          {!checking && state === "saving" && "Saving…"}
+          {!checking && state === "saved" && "Saved"}
+          {!checking && state === "error" && <span style={{ color: "var(--brick)" }}>{error}</span>}
         </span>
       </div>
 
@@ -250,14 +338,81 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
         <div className="notice">
           {noLink} {noLink === 1 ? "row has" : "rows have"} no job link. Those can only be
           matched on client plus title, so the same posting found by someone else may not be
-          recognised. Paste the link where you can.
+          recognised — and they cannot be checked against what you have already applied for.
+          Paste the link where you can.
         </div>
       )}
 
       <p className="hint" style={{ marginTop: 3 }}>
-        <b>Enter</b> on the last row adds another. Paste a block straight from
-        Excel and it fills across.
+        Nothing is filed until you press <b>+ New entry</b> or <b>Save now</b>.
+        <b> Enter</b> on the last row does the same and starts another. Paste a
+        block straight from Excel and it fills across and saves.
       </p>
+    </div>
+  );
+}
+
+/** What came back when a link turned out to be one already on record.
+ *
+ * Two different findings, and conflating them would be wrong in opposite
+ * directions. `mine` is this profile having already applied — a real duplicate,
+ * one identity approaching one client twice, which is the thing this whole
+ * product exists to prevent. `others` is a colleague's profile having applied,
+ * which is not a duplicate at all: two candidates in the running is the reason
+ * for running more than one profile. So the first is stated as a mistake and
+ * the second as information.
+ */
+function DuplicateNotice({ info, profileName, onIgnore, onRemove }) {
+  const mine = info?.mine;
+  const others = info?.others || [];
+
+  return (
+    <div className="notice gate" role="alert" style={{ borderLeftWidth: 3 }}>
+      <div className="stack" style={{ gap: 8 }}>
+        <div>
+          <b style={{ fontFamily: "var(--display)" }}>
+            {mine ? "Duplicate entry found" : "Somebody else has applied to this"}
+          </b>
+          {mine ? (
+            <p style={{ marginTop: 4 }}>
+              <b>{profileName}</b> already applied to this posting
+              {mine.applied_on ? <> on <b>{mine.applied_on}</b></> : null}
+              {mine.logged && !mine.applied_on ? <> — logged {mine.logged}</> : null}.
+              {" "}Applying twice under one identity is the same person approaching
+              the client for a second time.
+            </p>
+          ) : (
+            <p style={{ marginTop: 4 }}>
+              This posting is already on record, under
+              {" "}{others.slice(0, 3).map((o, i) => (
+                <span key={`${o.profile_id}-${i}`}>
+                  {i > 0 ? ", " : ""}<b>{o.profile}</b>
+                  {o.applied_on ? ` (${o.applied_on})` : ""}
+                </span>
+              ))}
+              {others.length > 3 ? ` and ${others.length - 3} more` : ""}.
+              {" "}That is not a duplicate — a different profile is a different
+              candidate — but it is worth knowing before you spend the time.
+            </p>
+          )}
+        </div>
+
+        {mine && others.length > 0 && (
+          <p className="hint" style={{ margin: 0 }}>
+            Also applied for by {others.map((o) => o.profile).join(", ")}.
+          </p>
+        )}
+
+        <div className="row" style={{ gap: 10 }}>
+          <button className="ghost" onClick={onIgnore}>
+            Ignore — keep this row
+          </button>
+          <button className="link" onClick={onRemove}>Remove the row</button>
+        </div>
+        <p className="hint" style={{ margin: 0 }}>
+          Ignoring is remembered for this link, so you will not be asked about it again.
+        </p>
+      </div>
     </div>
   );
 }

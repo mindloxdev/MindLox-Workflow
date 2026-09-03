@@ -31,6 +31,13 @@ who ran four rounds reads as one story rather than four unrelated rows. One
 nullable column on `interviews`; every interview already recorded has no
 predecessor, which is exactly what an empty column says.
 
+Version 2.6 asked a BD why they were skipping a job, and made "handed in" mean
+the same number everywhere. `assignments.skip_reason` is empty on every row
+already there, which is the truth — nobody was asked at the time.
+`uploads.usable_count` is the one column here that is not left at its default:
+0 would read as "handed in nothing" on the manager's screen, so it is filled in
+from the sheets themselves on the first start after upgrading.
+
 Everything below is idempotent. A brand new database skips it entirely.
 """
 from __future__ import annotations
@@ -103,8 +110,18 @@ LATER_COLUMNS = {
     "users": [
         ("dashboard_visible", "BOOLEAN DEFAULT FALSE"),
     ],
+    # v2.6 — why a job was turned down. Empty on every row already recorded,
+    # which is the truth: nobody was asked at the time.
     "assignments": [
         ("status_changed_at", "TIMESTAMP"),
+        ("skip_reason", "TEXT DEFAULT ''"),
+    ],
+    # v2.6 — how many rows of a sheet the matcher can use, as against how many
+    # rows the file had. Backfilled below rather than left at 0, because a 0
+    # here reads as "handed in nothing" on the manager's screen, which is worse
+    # than the mismatch it is fixing.
+    "uploads": [
+        ("usable_count", "INTEGER DEFAULT 0"),
     ],
 }
 
@@ -137,6 +154,31 @@ def _add_later_columns(engine: Engine) -> None:
             with engine.begin() as conn:
                 conn.execute(text("UPDATE batches SET last_built_at = computed_at "
                                   "WHERE last_built_at IS NULL AND computed_at IS NOT NULL"))
+        if table == "uploads" and any(n == "usable_count" for n, _ in missing):
+            _backfill_usable_counts(engine)
+
+
+def _backfill_usable_counts(engine: Engine) -> None:
+    """Count the usable rows of every sheet already handed in.
+
+    Done in Python rather than SQL because "usable" is a rule in ingest.py — a
+    link, or a client and a title, after the sheet's own column mapping has
+    been applied — and there is no second copy of that rule to drift from this
+    one. Sheets are per profile per cycle, so this is tens of rows, not
+    millions.
+    """
+    from . import ingest                      # here: schema.py imports at startup
+    uploads = Base.metadata.tables["uploads"]
+    with engine.begin() as conn:
+        rows = conn.execute(select(uploads.c.id, uploads.c.rows,
+                                   uploads.c.mapping, uploads.c.row_count)).all()
+        for upload_id, raw, mapping, row_count in rows:
+            try:
+                usable = len(ingest.apply_mapping(raw or [], mapping or {}))
+            except Exception:
+                usable = row_count or 0        # unreadable sheet: say what it said
+            conn.execute(text("UPDATE uploads SET usable_count = :n WHERE id = :i"),
+                         {"n": usable, "i": upload_id})
 
 
 def _upgrade_from_v1(engine: Engine) -> None:

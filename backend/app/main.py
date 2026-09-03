@@ -69,7 +69,15 @@ def _chunks(items: Iterable, size: int = _PARAM_CHUNK):
 
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
+
+# Managed Postgres sits behind a pooler that drops idle connections without
+# telling anybody, and this process holds some idle for as long as the gap
+# between automatic rebuilds. pool_pre_ping catches a connection that has
+# already died; pool_recycle retires one before it gets old enough to. Both are
+# harmless against SQLite, which hands back the same file either way.
+pool_args = {} if DATABASE_URL.startswith("sqlite") else {"pool_recycle": 300}
+engine = create_engine(DATABASE_URL, connect_args=connect_args,
+                       pool_pre_ping=True, **pool_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 Base.metadata.create_all(engine)
 bring_up_to_date(engine)
@@ -455,6 +463,17 @@ class EntriesIn(BaseModel):
 
 class StatusIn(BaseModel):
     status: str
+    # Required when the status is `skipped`, ignored otherwise. See set_status.
+    reason: str = ""
+
+
+class JobPatch(BaseModel):
+    """An edit to the posting itself, which every profile holding it will see."""
+    title: Optional[str] = None
+    company: Optional[str] = None
+    platform: Optional[str] = None
+    url: Optional[str] = None
+    description_url: Optional[str] = None
 
 
 def user_json(u: User) -> dict:
@@ -761,6 +780,7 @@ def get_batch(batch_id: int, db: Session = Depends(get_db), _: User = Depends(cu
              "headline": profiles[u.profile_id].headline if u.profile_id in profiles else "",
              "person": owners.get(u.user_id, "?"),
              "filename": u.filename, "row_count": u.row_count,
+             "usable_count": u.usable_count,
              "headers": u.headers, "mapping": u.mapping}
             for u in uploads
         ],
@@ -805,12 +825,14 @@ def upload_sheet(batch_id: int, profile_id: int = Form(...), file: UploadFile = 
 
     upload = Upload(batch_id=batch_id, profile_id=profile.id, user_id=user.id,
                     filename=file.filename, row_count=len(rows), headers=headers,
-                    mapping=mapping, rows=rows)
+                    mapping=mapping, rows=rows,
+                    usable_count=len(ingest.apply_mapping(rows, mapping)))
     db.add(upload)
     db.commit()
 
     return {"id": upload.id, "profile_id": profile.id, "profile": profile.name,
             "filename": upload.filename, "row_count": upload.row_count,
+            "usable_count": upload.usable_count,
             "headers": headers, "mapping": mapping,
             "preview": rows[:5], "fields": ingest.FIELDS}
 
@@ -824,8 +846,13 @@ def set_mapping(upload_id: int, body: MappingIn, db: Session = Depends(get_db),
     owned_profile(upload.profile_id, db, user)
     upload.mapping = {k: v for k, v in body.mapping.items()
                       if k in {f["key"] for f in ingest.FIELDS}}
+    # Remapping a column changes how many rows the matcher can read — pointing
+    # "Job link" at the right column is often what turns half a sheet from
+    # unusable into usable — so the count has to be taken again here.
+    upload.usable_count = len(ingest.apply_mapping(upload.rows or [], upload.mapping))
     db.commit()
-    return {"ok": True, "mapping": upload.mapping}
+    return {"ok": True, "mapping": upload.mapping,
+            "usable_count": upload.usable_count, "row_count": upload.row_count}
 
 
 # --------------------------------------------------------------------------- #
@@ -851,6 +878,7 @@ def list_entries(batch_id: int, profile_id: int, db: Session = Depends(get_db),
     rows = ingest.project_rows(upload.rows or [], upload.mapping or {})
     rows = [{**row, "headline": profile.headline or ""} for row in rows]
     return {"rows": rows, "filename": upload.filename, "row_count": len(rows),
+            "usable_count": upload.usable_count,
             "typed": (upload.mapping or {}) == TYPED_HEADERS}
 
 
@@ -898,7 +926,8 @@ def save_entries(batch_id: int, profile_id: int, body: EntriesIn,
         if upload is not None:
             db.delete(upload)
             db.commit()
-        return {"ok": True, "row_count": 0, "usable": 0, "filename": None}
+        return {"ok": True, "row_count": 0, "usable": 0, "usable_count": 0,
+                "filename": None}
 
     if upload is None:
         upload = Upload(batch_id=batch_id, profile_id=profile.id, user_id=user.id,
@@ -910,12 +939,13 @@ def save_entries(batch_id: int, profile_id: int, body: EntriesIn,
     upload.mapping = dict(TYPED_HEADERS)
     upload.rows = kept
     upload.row_count = len(kept)
+    usable = len(ingest.apply_mapping(kept, TYPED_HEADERS))
+    upload.usable_count = usable
     upload.user_id = user.id
     db.commit()
 
-    usable = sum(1 for row in ingest.apply_mapping(kept, TYPED_HEADERS))
     return {"ok": True, "row_count": len(kept), "usable": usable,
-            "filename": upload.filename}
+            "usable_count": usable, "filename": upload.filename}
 
 
 @app.delete("/api/uploads/{upload_id}")
@@ -1369,12 +1399,31 @@ def report(batch_id: int, db: Session = Depends(get_db), _: User = Depends(admin
         for job_id in hit_twice if job_id in jobs
     ]
 
+    # What was turned down, and why. A skip is the one decision on a BD's screen
+    # that destroys work — the job leaves that profile and no later cycle offers
+    # it again — so this is the manager's only sight of it. Read together the
+    # reasons usually say something about the searches feeding a profile rather
+    # than about the individual postings.
+    turned_down = [
+        {"profile": profiles[a.profile_id].name if a.profile_id in profiles else "?",
+         "title": j.title or "", "company": j.company or "",
+         "platform": j.platform or "", "url": j.url or "",
+         "reason": a.skip_reason or "",
+         "when": working_label(a.status_changed_at)["label"] if a.status_changed_at else ""}
+        for a, j in db.execute(
+            select(Assignment, Job).join(Job, Job.id == Assignment.job_id)
+            .where(Assignment.batch_id == batch_id, Assignment.status == "skipped")
+            .order_by(Assignment.status_changed_at.desc().nullslast())
+        ).all()
+    ]
+
     return {
         **batch_json(batch),
         "participants": _participant_json(participants, profiles, owners, counts=counts),
         "matrix": {"names": [profiles[p].name if p in profiles else "?" for p in participants],
                    "rows": [[matrix[a][b] for b in participants] for a in participants]},
         "collisions": sorted(collisions, key=lambda c: -len(c["applied_by"]))[:400],
+        "turned_down": turned_down[:400],
     }
 
 
@@ -1388,6 +1437,7 @@ def _row_json(a: Assignment, j: Job, found_by: Optional[list[str]] = None,
             "company": j.company, "platform": j.platform, "url": j.url,
             "description_url": j.description_url or "",
                         "applied_on": applied_on,
+            "skip_reason": a.skip_reason or "",
             # Which profiles already applied to this one. It is why the job is
             # on this list at all — somebody else found it — and a BD reading
             # "found by Faizan" knows whose search to ask about when a whole
@@ -1560,6 +1610,14 @@ def job_record(q: str = "", profile_id: Optional[int] = None,
     total = len(ordered)
     rows = ordered[offset:offset + limit]
 
+    # Who may correct each posting on this page. Worked out for the page rather
+    # than the whole result set, and in two queries rather than per row.
+    page_jobs = {job.id for _, job, _ in rows}
+    sourced = (page_jobs if user.role == "admin"
+               else _sourced_jobs(db, page_jobs, user))
+    owned = {p.id for p in db.scalars(
+        select(Profile).where(Profile.user_id == user.id))} if user.role != "admin" else None
+
     return {
         "rows": [{
             "job_id": job.id,
@@ -1576,9 +1634,225 @@ def job_record(q: str = "", profile_id: Optional[int] = None,
             "applied_on": application.applied_on or "",
             "logged": working_label(application.created_at)["label"]
                       if application.created_at else "",
+            # The posting is one shared row, so correcting it corrects it for
+            # everyone holding it — which is why only the person who first
+            # logged it may. A manager may always.
+            "can_edit": job.id in sourced,
+            # Withdrawing an entry is scoped to the profile, so the test is
+            # whether this person runs that profile, not who found the job.
+            "can_delete": owned is None or profile.id in owned,
         } for application, job, profile in rows],
         "total": total, "limit": limit, "offset": offset, "q": needle,
     }
+
+
+def _sourced_jobs(db: Session, job_ids: Iterable[int], user: User) -> set[int]:
+    """Which of these jobs this person found themselves.
+
+    A job row is shared: once two profiles hold a posting they are reading the
+    same title, the same client and the same link, so a correction by one is a
+    correction for the other. That is the point — one posting, one description,
+    corrected once — but it does mean the right to make it has to sit somewhere
+    defensible.
+
+    It sits with whoever *found* the job, and this codebase already draws that
+    line precisely: a job a profile put into the pool from its own sheet has a
+    `batch_applications` row, while one it was handed off somebody else's sheet
+    and later marked applied does not. So being dispatched a job and working it
+    does not make it yours to rewrite; typing it in does.
+
+    Deliberately not "the earliest application". Two BDs who log the same
+    posting in one cycle are inserted together in one statement, and picking
+    the lower id would hand one of them the pen for no reason either could
+    explain. They both found it, so they both may correct it.
+
+    History imported from the old spreadsheets predates cycles and has no
+    per-cycle row, so an application with no batch at all counts too — those
+    came off the BD's own sheet by definition.
+    """
+    ids = list(job_ids)
+    if not ids:
+        return set()
+    mine = [row for (row,) in db.execute(
+        select(Profile.id).where(Profile.user_id == user.id)).all()]
+    if not mine:
+        return set()
+
+    found: set[int] = set()
+    for chunk in _chunks(ids):
+        found.update(job_id for (job_id,) in db.execute(
+            select(BatchApplication.job_id).where(
+                BatchApplication.job_id.in_(chunk),
+                BatchApplication.profile_id.in_(mine))).all())
+        found.update(job_id for (job_id,) in db.execute(
+            select(Application.job_id).where(
+                Application.job_id.in_(chunk),
+                Application.profile_id.in_(mine),
+                Application.batch_id.is_(None))).all())
+    return found
+
+
+def _may_edit_job(db: Session, job_id: int, user: User) -> None:
+    """Raise unless this person found the job, or manages the workspace."""
+    if user.role == "admin":
+        return
+    if job_id in _sourced_jobs(db, [job_id], user):
+        return
+    raise HTTPException(403, "You can only correct a job you logged yourself. "
+                             "This one came off somebody else's sheet — ask them, "
+                             "or ask your manager.")
+
+
+@app.get("/api/jobs/check")
+def check_duplicate(url: str = "", title: str = "", company: str = "",
+                    profile_id: Optional[int] = None,
+                    db: Session = Depends(get_db), user: User = Depends(current_user)):
+    """Has this posting been applied to before, and by whom?
+
+    Called as a BD types a job link, before the row is saved. The link is the
+    first thing they paste and the field that identifies a posting, so it is
+    the first moment the question can be answered at all.
+
+    Answered on the fingerprint rather than on the text, so the same job pasted
+    with a tracking parameter, through a referral link, or with the protocol
+    typed differently still comes back as the same job — which is the whole
+    point of having a fingerprint.
+
+    Two different answers, deliberately kept apart. `mine` is this profile
+    having already applied: a real duplicate, the thing that must never happen
+    twice, because it is one identity approaching one client twice. `others` is
+    a colleague's profile having applied, which is not a duplicate at all — two
+    candidates in the running is what running several profiles is *for* — but
+    is still worth knowing before spending the effort.
+    """
+    fingerprint, tier = matching.fingerprint(url, title, company)
+    empty = {"duplicate": False, "fingerprint": "", "tier": "-",
+             "job_id": None, "mine": None, "others": []}
+    if not fingerprint:
+        return empty
+
+    job = db.scalar(select(Job).where(Job.fingerprint == fingerprint))
+    if job is None:
+        return {**empty, "fingerprint": fingerprint, "tier": tier}
+
+    # Only the profiles this person is entitled to see. A BD is told plainly
+    # that a colleague applied — the new-jobs list already names them — but a
+    # workspace they have no part in stays out of it.
+    visible = visible_profile_ids(db, user)
+    rows = db.execute(
+        select(Application, Profile, User)
+        .join(Profile, Profile.id == Application.profile_id)
+        .outerjoin(User, User.id == Application.user_id)
+        .where(Application.job_id == job.id)
+        .order_by(Application.id.desc())
+    ).all()
+
+    mine, others = None, []
+    for application, profile, owner in rows:
+        entry = {"profile_id": profile.id, "profile": profile.name,
+                 "bd": owner.name if owner else "",
+                 "applied_on": application.applied_on or "",
+                 "logged": working_label(application.created_at)["label"]
+                           if application.created_at else ""}
+        if profile_id is not None and profile.id == profile_id:
+            mine = entry
+        elif visible is None or profile.id in visible:
+            others.append(entry)
+
+    return {"duplicate": mine is not None, "fingerprint": fingerprint, "tier": tier,
+            "job_id": job.id, "title": job.title or "", "company": job.company or "",
+            "url": job.url or "", "mine": mine, "others": others}
+
+
+@app.patch("/api/jobs/{job_id}")
+def edit_job(job_id: int, body: JobPatch, db: Session = Depends(get_db),
+             user: User = Depends(current_user)):
+    """Correct a posting, everywhere at once.
+
+    There is one row per posting, so this is the correction and there is no
+    copy of it to go stale: the new-jobs list, every colleague's list, the
+    record and the exports all read this row and show the new wording the next
+    time they ask for it.
+
+    Changing the link is the one edit that can change what the job *is*. The
+    fingerprint is derived from it, so a corrected link re-identifies the
+    posting — which is usually the point, since a link typed wrongly is exactly
+    what splits one posting into two. If the corrected link turns out to be a
+    posting the database already holds separately, this stops rather than
+    merging them: joining two job rows silently would take two profiles'
+    histories with it.
+    """
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(404, "No such job.")
+    _may_edit_job(db, job_id, user)
+
+    if body.title is not None:
+        job.title = body.title.strip()[:500]
+    if body.company is not None:
+        job.company = body.company.strip()[:300]
+        job.company_key = matching.normalize_text(job.company)[:300]
+    if body.platform is not None:
+        job.platform = body.platform.strip()[:120]
+    if body.description_url is not None:
+        job.description_url = _check_link(body.description_url, "job description link")
+    if body.url is not None:
+        job.url = _check_link(body.url, "job link")
+
+    # Re-derive identity from whatever the row now says. Done after every field
+    # is in place, because a fingerprint falls back to client-and-title when
+    # there is no link, and both of those may have changed too.
+    fingerprint, tier = matching.fingerprint(job.url, job.title, job.company)
+    if not fingerprint:
+        raise HTTPException(400, "A job needs a link, or a client and a title.")
+    if fingerprint != job.fingerprint:
+        clash = db.scalar(select(Job).where(Job.fingerprint == fingerprint,
+                                            Job.id != job.id))
+        if clash is not None:
+            raise HTTPException(409,
+                "That link belongs to a posting already recorded separately "
+                f"({clash.title or 'untitled'} at {clash.company or 'unknown client'}). "
+                "Delete this row instead of pointing it at the other one.")
+        job.fingerprint = fingerprint
+        job.tier = tier
+
+    db.commit()
+    return {"ok": True, "job_id": job.id, "title": job.title or "",
+            "company": job.company or "", "platform": job.platform or "",
+            "url": job.url or "", "description_url": job.description_url or "",
+            "fingerprint": job.fingerprint}
+
+
+@app.delete("/api/jobs/{job_id}/profiles/{profile_id}")
+def delete_entry(job_id: int, profile_id: int, db: Session = Depends(get_db),
+                 user: User = Depends(current_user)):
+    """Withdraw one profile's application to one job.
+
+    Scoped to the profile on purpose. The job row stays, because colleagues may
+    hold it too and deleting it would take it out of their record as well as
+    this one — a mistyped entry is one person's to take back, not one person's
+    to take from everybody.
+
+    The all-time row goes, the per-cycle row goes with it, and an assignment
+    that had been marked applied returns to `pending`: this profile has not
+    applied to the job any more, so it is a job the profile can legitimately be
+    offered again.
+    """
+    profile = owned_profile(profile_id, db, user)
+    application = db.scalar(select(Application).where(
+        Application.job_id == job_id, Application.profile_id == profile.id))
+    if application is None:
+        raise HTTPException(404, "There is no application from this profile to that job.")
+
+    db.execute(delete(BatchApplication).where(
+        BatchApplication.job_id == job_id, BatchApplication.profile_id == profile.id))
+    db.execute(update(Assignment)
+               .where(Assignment.job_id == job_id, Assignment.profile_id == profile.id,
+                      Assignment.status == "applied")
+               .values(status="pending", status_changed_at=utcnow()))
+    db.delete(application)
+    db.commit()
+    return {"ok": True}
 
 
 @app.patch("/api/assignments/{assignment_id}")
@@ -1590,6 +1864,24 @@ def set_status(assignment_id: int, body: StatusIn, db: Session = Depends(get_db)
     owned_profile(row.profile_id, db, user)
     if body.status not in ("pending", "applied", "skipped"):
         raise HTTPException(400, "Status must be pending, applied or skipped.")
+
+    # A skip is the only status that destroys work: the job leaves this
+    # profile's list and no later cycle offers it again. Asking why costs one
+    # sentence and is the difference between a manager reading "47 skipped"
+    # and reading why — which is usually a fixable thing about the searches
+    # feeding that profile. Enforced here rather than in the browser so it
+    # holds for anything that talks to the API.
+    reason = (body.reason or "").strip()
+    if body.status == "skipped":
+        if not reason:
+            raise HTTPException(400, "Say why you are skipping this one. "
+                                     "Your manager sees the reason, not you deciding alone.")
+        row.skip_reason = reason[:1000]
+    else:
+        # Moving off `skipped` retracts the reason with it, rather than leaving
+        # a stale explanation attached to a job that is back on the list.
+        row.skip_reason = ""
+
     row.status = body.status
     row.status_changed_at = utcnow()
 
@@ -1607,6 +1899,7 @@ def set_status(assignment_id: int, body: StatusIn, db: Session = Depends(get_db)
         Application.job_id == row.job_id,
         Application.profile_id == row.profile_id))
     return {"ok": True, "status": row.status,
+            "skip_reason": row.skip_reason or "",
             "applied_on": application.applied_on if application else ""}
 
 

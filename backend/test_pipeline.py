@@ -1010,7 +1010,7 @@ def test_the_report_counts_what_was_turned_down(client, bd, applied):
                         headers=bd).json()["profiles"]
     mine = next(p for p in sheets if p["id"] == profile)
     client.patch(f"/api/assignments/{mine['jobs'][0]['id']}",
-                 json={"status": "skipped"}, headers=bd)
+                 json={"status": "skipped", "reason": "Wrong seniority."}, headers=bd)
 
     report = client.get(
         f"/api/dashboard/me?date_from={days_ago(30)}&date_to={today_iso()}",

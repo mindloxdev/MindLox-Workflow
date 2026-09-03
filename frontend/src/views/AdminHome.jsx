@@ -284,7 +284,9 @@ export default function AdminHome() {
           <div className="card scroll">
             <table>
               <thead>
-                <tr><th>Profile</th><th>Headline</th><th>Run by</th><th>File</th><th>Rows</th><th>Link column</th></tr>
+                <tr><th>Profile</th><th>Headline</th><th>Run by</th><th>File</th>
+                    <th title="Rows the matcher can read a job from. A file row with no link and no client is not one.">Usable rows</th>
+                    <th>Link column</th></tr>
               </thead>
               <tbody>
                 {detail.uploads.map((u) => (
@@ -293,7 +295,14 @@ export default function AdminHome() {
                     <td className="muted">{u.headline || "—"}</td>
                     <td>{u.person}</td>
                     <td className="mono truncate" style={{ fontSize: 12 }}>{u.filename}</td>
-                    <td className="mono">{u.row_count}</td>
+                    <td className="mono">
+                      {u.usable_count ?? u.row_count}
+                      {u.usable_count != null && u.row_count > u.usable_count && (
+                        <span className="muted" style={{ fontSize: 11 }}>
+                          {" "}of {u.row_count}
+                        </span>
+                      )}
+                    </td>
                     <td>
                       {u.mapping?.url
                         ? <span className="pill on">{u.mapping.url}</span>
@@ -380,6 +389,44 @@ export default function AdminHome() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {report.turned_down?.length > 0 && (
+            <div>
+              <h3>Turned down, and why</h3>
+              <p className="muted" style={{ margin: "3px 0 9px" }}>
+                A skip retires the posting from that profile for good — no later
+                cycle offers it again — so this is the only place the reasoning
+                is visible. Read together rather than one at a time: a run of
+                "wrong seniority" against one profile is usually something about
+                the searches feeding it, not about the postings.
+              </p>
+              <div className="card scroll">
+                <table>
+                  <thead>
+                    <tr><th>Job</th><th>Company</th><th>Profile</th><th>Reason</th><th>When</th></tr>
+                  </thead>
+                  <tbody>
+                    {report.turned_down.slice(0, 100).map((t, i) => (
+                      <tr key={i}>
+                        <td className="truncate" style={{ maxWidth: 260 }}>
+                          {safeUrl(t.url)
+                            ? <a href={safeUrl(t.url)} target="_blank" rel="noreferrer noopener">{t.title || t.url}</a>
+                            : (t.title || "—")}
+                        </td>
+                        <td>{t.company || "—"}</td>
+                        <td><b>{t.profile}</b></td>
+                        <td style={{ maxWidth: 320 }}>{t.reason || <span className="muted">no reason recorded</span>}</td>
+                        <td className="muted" style={{ whiteSpace: "nowrap" }}>{t.when || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {report.turned_down.length > 100 && (
+                <p className="hint">Showing 100 of {report.turned_down.length}.</p>
+              )}
             </div>
           )}
         </section>

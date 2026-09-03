@@ -304,6 +304,15 @@ class Upload(Base):
     user_id = Column(Integer, ForeignKey("users.id"), index=True)  # who uploaded
     filename = Column(String(255))
     row_count = Column(Integer, default=0)
+    # How many of those rows the matcher can actually identify a job from —
+    # a link, or a client and a title. `row_count` is what the file had in it,
+    # which for an uploaded sheet counts headers nobody mapped, blank trailing
+    # rows and notes typed in the margin. The two were being read as the same
+    # number on the manager's screen, where "handed in 40" sat beside "logged
+    # 36" with nothing to say where the other four went. Stored rather than
+    # recomputed because every screen that shows it would otherwise re-project
+    # every row of every sheet to print one integer.
+    usable_count = Column(Integer, nullable=False, default=0)
     headers = Column(JSON, default=list)
     mapping = Column(JSON, default=dict)
     rows = Column(JSON, default=list)
@@ -375,6 +384,16 @@ class Assignment(Base):
     profile_id = Column(Integer, ForeignKey("profiles.id"), index=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True)
     status = Column(String(16), default="pending")  # pending | applied | skipped
+    # Why this one was turned down, in the BD's own words. Required when the
+    # status becomes `skipped` and empty for every other status.
+    #
+    # A skip is the one decision on this screen that destroys work: the job
+    # leaves the profile's list and never returns in a later cycle. Until now
+    # it left no trace of the reasoning, so a manager reading "47 skipped"
+    # could not tell a profile being protected from a good posting being thrown
+    # away, and could not answer the question that follows — whether the
+    # searches feeding that profile are landing at all.
+    skip_reason = Column(Text, nullable=False, default="")
     exclusive = Column(Boolean, nullable=False, default=False)
     status_changed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow)

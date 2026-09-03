@@ -654,6 +654,48 @@ uvicorn app.main:app --reload --port 8000
 
 Leave that running. API docs are at <http://localhost:8000/docs>.
 
+`backend/.env` is read by `app/__init__.py` on startup, before anything in the
+package looks at the environment — so `DATABASE_URL`, `JWT_SECRET` and
+`CORS_ORIGINS` all come from that one file and there is nothing to export by
+hand. A real environment variable beats a line in the file, which is what keeps
+`DATABASE_URL=… pytest` and every hosted deployment working unchanged.
+
+`.env` is in `.gitignore`; `.env.example` is the copy that is committed. Keep
+real credentials out of the example.
+
+### Pointing it at Postgres
+
+Put the connection string in `backend/.env` and restart. Nothing else changes —
+the tables, the upgrade in `schema.py` and the partial unique index that carries
+split mode are all created on first start.
+
+```ini
+# Neon, Supabase, Render, Heroku — paste the string exactly as they give it
+DATABASE_URL=postgresql://USER:PASSWORD@ep-xxxx-pooler.REGION.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+```
+
+`postgres://` and `postgresql://` are both rewritten to `postgresql+psycopg2://`
+in `app/main.py`, because SQLAlchemy 2 rejects the first and no host mentions it.
+Connections are pre-pinged and recycled every five minutes, so a pooler that
+drops an idle connection between rebuilds costs nothing.
+
+Check it took:
+
+```bash
+python -c "from app.main import engine; print(engine.dialect.name, engine.url.host)"
+curl http://localhost:8000/api/health
+```
+
+The first says `postgresql` and your host; a reply of `sqlite` and `None` means
+the `.env` is not where the app is looking — it belongs next to `seed.py`, in
+`backend/`, not in the repository root.
+
+**On a database the team is already using, `seed.py` is not the way in.** It
+only ever adds what is missing, but it adds sample accounts and sample sheets
+to a real workspace. Use `ADMIN_EMAIL` / `ADMIN_PASSWORD` instead, which create
+one manager on an empty database and do nothing on a database that already has
+one — see [Deploying](#deploying).
+
 Seeded accounts:
 
 | Email | Password | Role | Profile |
@@ -744,6 +786,114 @@ back and worked ones do not, split cycles keep every job to one profile,
 rebuilding gives the same answer, one cycle's report never counts another's, and
 nothing a spreadsheet can contain becomes a live link or an Excel formula on a
 colleague's machine.
+
+---
+
+## Logging a job
+
+### The link is checked as you type it
+
+The job link is the first thing pasted into a row and the field that identifies
+a posting, so it is the first moment anybody can be told they are about to log
+something twice. On leaving the link cell the server is asked, and answers on
+the **fingerprint** rather than the text — the same job pasted with a tracking
+parameter, through a referral link, or with the protocol typed differently
+still comes back as the same job.
+
+Two different answers, and they are not the same kind of thing:
+
+| What came back | What it means |
+|---|---|
+| **Duplicate entry found** | *This* profile already applied, and the date it did. One identity approaching one client twice, which is the thing the whole product exists to prevent. |
+| **Somebody else has applied to this** | A colleague's profile holds it. Not a duplicate at all — a different profile is a different candidate, which is the point of running several — but worth knowing before spending the time. |
+
+Either way the row is yours to keep: **Ignore — keep this row** files it anyway,
+and the answer is remembered for that link so you are not asked twice.
+
+### Nothing saves until you say so
+
+Every cell used to write to the server on blur, so a half-typed row was already
+the sheet and a row abandoned mid-thought stayed in it. A row is now committed
+when you press **+ New entry** to start the next one, **Save now**, or Enter on
+the last row. Until then the screen says *Not saved yet* and closing the tab
+warns you.
+
+### A skip has to say why
+
+Marking a job **skipped** retires it from that profile for good — no later cycle
+offers it again — so it is the one status change that asks a question first. The
+reason lands in `assignments.skip_reason` and appears on the manager's cycle
+report under **Turned down, and why**.
+
+Read together rather than one at a time: a run of *wrong seniority* against one
+profile is usually something about the searches feeding it, not about the
+postings.
+
+### Correcting a posting, and withdrawing an entry
+
+Both live on **All jobs**, on the row itself.
+
+**edit** rewrites the posting — title, client, platform, either link. There is
+one job row, so the correction reaches every profile holding it, the new-jobs
+lists included, straight away. It is offered only to whoever *found* the job:
+somebody who typed it onto their own sheet, or whose imported history carries
+it. Being dispatched a job and marking it applied does not make it yours to
+rewrite. Two BDs who both typed the same posting in both found it, and both
+may correct it.
+
+Correcting the link re-identifies the job, which is usually the point — a link
+typed wrongly is exactly what splits one posting into two. If the corrected
+link turns out to be a posting already recorded separately the edit is refused
+rather than merging them, because fusing two job rows would take two profiles'
+histories with it.
+
+**withdraw** takes back one profile's application. The job row stays, so
+colleagues who applied to it keep their record; only that profile's entry goes,
+and the job becomes one that profile can be offered again.
+
+---
+
+## Loading history from the old spreadsheets
+
+Before the app, the team kept one tab per BD in a single workbook. `import_old_sheets.py`
+loads those into the database as history:
+
+```bash
+cd backend
+python import_old_sheets.py "../Old Apply sheets.xlsx"            # dry run, writes nothing
+python import_old_sheets.py "../Old Apply sheets.xlsx" --commit   # apply it
+```
+
+It writes `jobs` and `applications` with **no batch**. The old sheets are not a
+dispatch cycle and filing them as one would put months-old work into a cycle's
+report and everybody's duplication figures. What it buys is the thing the sheets
+are for: `applications` is the all-time record, and cover mode only dispatches a
+job to a profile that has never applied to it, so loading the history is what
+stops the team being handed a posting they already worked in July.
+
+**Which profile a row goes to.** Every BD runs two identities — an Accounts
+Receivable one and a Customer Service (VA) one — and the sheets record both in
+one tab with a **VA jobs** column ticked on the VA rows. Ticked goes to the VA
+profile, blank to the AR profile. Sidra's two tabs are both VA identities in
+their own right, so each goes to its own profile whole.
+
+That reading is checked rather than assumed: splitting each sheet on the column
+and counting title words gives *patient / customer / service / care / access /
+support* on the ticked side and *billing / revenue / cycle / accounts /
+receivable / claims* on the blank side, in every sheet — which is exactly the
+two headlines those profiles carry.
+
+**Dates.** Excel decided for itself how to read what the team typed and on 842
+rows read a day-first date month-first — "10/07/2026" was the 10th of July and
+became the 7th of October. They are recognisable without guessing, because they
+land in the future and these are sheets of work already done. Every one becomes
+a real past date when the numbers change places, so the importer swaps them and
+leaves alone anything that does not survive the swap.
+
+**Running it twice is safe.** `applications` is UNIQUE(job_id, profile_id) and
+jobs are looked up by fingerprint before being created, so a second run inserts
+nothing. That is what makes the dry run worth trusting — the counts it prints
+are what a real run would write.
 
 ---
 
@@ -906,6 +1056,10 @@ worker builds it.
 - Serve over HTTPS. Tokens are in `sessionStorage`; plain HTTP leaks them.
 - Switch `DATABASE_URL` to Postgres and set up backups.
 - Set `CORS_ORIGINS` to your real domain only.
+- Keep the production connection string out of a working copy that runs the
+  tests. `conftest.py` clears `DATABASE_URL` before pytest collects anything,
+  so the suite always builds its own throwaway SQLite file — but a stray script
+  that imports `app` and then writes is answerable to whatever `.env` names.
 
 ---
 
@@ -923,8 +1077,12 @@ backend/
     ingest.py     Spreadsheet reading and column auto-detection
     exports.py    Excel output — dispatched lists, the cycle report, the pipeline
     schema.py     The v1 -> v2 upgrade, and the columns added since
+    __init__.py   Reads backend/.env, before anything else reads the environment
+  .env            Your configuration. Not in git
+  conftest.py     Clears DATABASE_URL so the tests never touch a real database
   schema.sql      The whole Postgres schema, for review or for Supabase
   seed.py         First accounts, profiles, developers and the sample data
+  import_old_sheets.py  The team's pre-app spreadsheets, loaded as history
   test_matching.py, test_e2e.py, test_dashboard.py, test_developer.py,
   test_pipeline.py
 

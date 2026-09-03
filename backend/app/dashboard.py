@@ -159,7 +159,12 @@ def cycle_stats(db: Session, batch_id: Optional[int],
     if not batch_id:
         return dict(stats)
 
-    upload_query = select(Upload.profile_id, func.sum(Upload.row_count)).where(
+    # `usable_count`, not `row_count`. The first is how many rows the matcher
+    # could identify a job from; the second is how many rows the file had,
+    # which for an uploaded sheet counts blank trailing rows and notes typed in
+    # the margin. Reporting the second put "handed in 40" beside "logged 36" on
+    # this very screen with nothing to say where the other four went.
+    upload_query = select(Upload.profile_id, func.sum(Upload.usable_count)).where(
         Upload.batch_id == batch_id)
     if date_from:
         upload_query = upload_query.where(
@@ -480,22 +485,40 @@ def range_report(db: Session, profile_ids: Optional[Sequence[int]],
             ).all():
                 own.add((job_id, profile_id, batch_id))
 
-    own_found = sum(1 for job_id, profile_id, batch_id, _ in rows
-                    if (job_id, profile_id, batch_id) in own)
+    # Five columns are selected above — job, profile, batch, applied_on,
+    # created_at — so five come back. Unpacking four raised on the first row,
+    # which took the whole between-two-dates report down with it.
+    #
+    # An application belonging to no cycle at all is history loaded from the
+    # team's own spreadsheets, which predate cycles entirely. Those came off
+    # the BD's own sheet by definition, so they are theirs — without this they
+    # fall through to `from_others` and a month of somebody's own work is
+    # reported back to them as somebody else's finding.
+    own_found = sum(1 for job_id, profile_id, batch_id, _, _ in rows
+                    if batch_id is None or (job_id, profile_id, batch_id) in own)
 
     # ── What was turned down ──────────────────────────────────────────────
+    # Dated by when somebody marked it, not by when the cycle put it there: a
+    # job dispatched on Monday and turned down on Friday belongs to Friday.
     skipped_at = func.coalesce(Assignment.status_changed_at, Assignment.created_at)
-    skipped = in_window(
-        select(func.count(Assignment.id)).where(Assignment.status == "skipped"),
-        skipped_at)
+    skipped = select(func.count(Assignment.id)).where(Assignment.status == "skipped")
+    if start is not None:
+        skipped = skipped.where(skipped_at >= start)
+    if end is not None:
+        skipped = skipped.where(skipped_at < end)
     if profile_ids is not None:
         skipped = skipped.where(Assignment.profile_id.in_(list(profile_ids)))
     skipped_count = db.scalar(skipped) or 0
 
     # ── Effort per day ────────────────────────────────────────────────────
+    # Bucketed by the same rule that decided whether a row is in the window at
+    # all — the Applied on value, falling back to when it was logged. Counting
+    # these on `created_at` instead put a row in one day's column that the
+    # filter above had admitted on another day's date, so the per-day figures
+    # and the total they are meant to break down disagreed.
     per_day: Counter = Counter()
-    for _, _, _, stamp in rows:
-        day = _working_day(stamp)
+    for row in rows:
+        day = _application_day(row.applied_on, row.created_at)
         if day is not None:
             per_day[day] += 1
     span = ((date_to or _today()) - (date_from or min(per_day, default=_today()))).days + 1

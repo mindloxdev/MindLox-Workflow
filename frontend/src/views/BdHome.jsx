@@ -39,6 +39,11 @@ export default function BdHome({ pane = null, onPaneSeen }) {
   // already here, so filtering it is instant and a request per keystroke would
   // be slower and worse.
   const [filter, setFilter] = useState("");
+  // The job waiting on a reason before it can be skipped. A skip retires the
+  // posting from this profile for good and never comes back in a later cycle,
+  // so it is the one status change that asks a question first.
+  const [skipping, setSkipping] = useState(null);   // { id, title, company }
+  const [skipReason, setSkipReason] = useState("");
   const fileInput = useRef(null);
 
   const batch = useMemo(
@@ -131,7 +136,8 @@ export default function BdHome({ pane = null, onPaneSeen }) {
     try {
       const data = await api.upload(batchId, profileId, file);
       setUpload(data);
-      setNote({ text: `${data.row_count} rows read for ${data.profile}. Check the columns below.` });
+      setNote({ text: `${data.usable_count ?? data.row_count} of ${data.row_count} rows `
+                    + `are usable for ${data.profile}. Check the columns below.` });
     } catch (err) {
       setNote({ bad: true, text: err.message });
     } finally {
@@ -149,7 +155,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
     }
   };
 
-  const mark = async (assignmentId, status) => {
+  const mark = async (assignmentId, status, reason = "") => {
     setSheets((all) => ({
       ...all,
       // Skipping retires the job from this profile for good, so the row leaves
@@ -160,7 +166,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
         .map((r) => (r.id === assignmentId ? { ...r, status } : r)),
     }));
     try {
-      const saved = await api.setStatus(assignmentId, status);
+      const saved = await api.setStatus(assignmentId, status, reason);
       setSheets((all) => ({
         ...all,
         [profileId]: (all[profileId] || []).map((r) => (
@@ -171,12 +177,35 @@ export default function BdHome({ pane = null, onPaneSeen }) {
       }));
     } catch (err) {
       setNote({ bad: true, text: err.message });
+      loadSheets();                 // put the row back; the change did not take
     }
+  };
+
+  /** Skipping goes through the prompt; everything else is immediate. */
+  const chooseStatus = (job, status) => {
+    if (status === "skipped") {
+      setSkipReason("");
+      setSkipping({ id: job.id, title: job.title, company: job.company });
+      return;
+    }
+    mark(job.id, status);
+  };
+
+  const confirmSkip = async () => {
+    const reason = skipReason.trim();
+    if (!reason) return;
+    const target = skipping;
+    setSkipping(null);
+    await mark(target.id, "skipped", reason);
   };
 
   const headers = upload?.headers || [];
   const done = sheet.filter((j) => j.status === "applied").length;
-  const handedIn = upload?.row_count || 0;
+  // What the matcher can actually read, not how many lines the file had. The
+  // two differ on an uploaded sheet with blank rows or an unmapped link column,
+  // and showing the larger one here put "handed in 40" next to a cycle that
+  // logged 36 with nothing to explain the gap.
+  const handedIn = upload?.usable_count ?? upload?.row_count ?? 0;
   const newJobs = sheet.filter((j) => j.status !== "applied");
 
   // What the filter box matches. `found_by` is in here because it is the whole
@@ -212,6 +241,38 @@ export default function BdHome({ pane = null, onPaneSeen }) {
 
   return (
     <div className="stack">
+      {skipping && (
+        <div className="card pad stack" role="alertdialog" aria-modal="true"
+             style={{ gap: 10, borderLeft: "3px solid var(--brick)" }}>
+          <div>
+            <b style={{ fontFamily: "var(--display)" }}>Why are you skipping this one?</b>
+            <p className="muted" style={{ marginTop: 3 }}>
+              <b>{skipping.title || "This job"}</b>
+              {skipping.company ? <> at <b>{skipping.company}</b></> : null}.
+            </p>
+            <p className="hint" style={{ marginTop: 6, maxWidth: 620 }}>
+              Skipping retires it from {profile?.name} for good — it will not come
+              back in a later cycle. Your manager reads these to see whether the
+              searches feeding this profile are landing, so a few words is enough:
+              wrong seniority, on-site only, rate too low, client already approached.
+            </p>
+          </div>
+          <textarea rows={3} autoFocus value={skipReason}
+                    placeholder="Wrong seniority — this one wants 10 years."
+                    onChange={(e) => setSkipReason(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) confirmSkip();
+                      if (e.key === "Escape") setSkipping(null);
+                    }} />
+          <div className="row" style={{ gap: 10 }}>
+            <button onClick={confirmSkip} disabled={!skipReason.trim()}>
+              Skip this job
+            </button>
+            <button className="ghost" onClick={() => setSkipping(null)}>Keep it on the list</button>
+          </div>
+        </div>
+      )}
+
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
           <h1>Your work</h1>
@@ -433,8 +494,10 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                       profileHeadline={profile?.headline}
                       onSaved={(result) => setUpload((current) => (
                         current
-                          ? { ...current, row_count: result.row_count }
-                          : { row_count: result.row_count, mapping: {}, headers: [] }
+                          ? { ...current, row_count: result.row_count,
+                              usable_count: result.usable_count }
+                          : { row_count: result.row_count,
+                              usable_count: result.usable_count, mapping: {}, headers: [] }
                       ))}
                     />
                   )}
@@ -487,7 +550,17 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                         </div>
                       )}
                       <div className="row">
-                        <span className="pill on">{upload.row_count} rows handed in</span>
+                        <span className="pill on">
+                          {upload.usable_count ?? upload.row_count} rows handed in
+                        </span>
+                        {upload.usable_count != null
+                          && upload.row_count > upload.usable_count && (
+                          <span className="muted" style={{ fontSize: 12 }}>
+                            {upload.row_count - upload.usable_count} of the{" "}
+                            {upload.row_count} rows in the file carry no job link and
+                            no client, so they are not counted.
+                          </span>
+                        )}
                         <button className="link" onClick={async () => {
                           await api.deleteUpload(upload.id);
                           setUpload(null);
@@ -620,7 +693,8 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                               )}
                             </td>
                             <td>
-                              <select value={job.status} onChange={(e) => mark(job.id, e.target.value)}>
+                              <select value={job.status}
+                                      onChange={(e) => chooseStatus(job, e.target.value)}>
                                 <option value="pending">to do</option>
                                 <option value="applied">applied</option>
                                 <option value="skipped">skipped</option>

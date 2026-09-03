@@ -179,7 +179,8 @@ def test_marking_a_job_applied_moves_the_dashboard(client, dana, worked_cycle):
                       headers=dana).json()["jobs"]
     assert client.patch(f"/api/assignments/{jobs[0]['id']}", json={"status": "applied"},
                         headers=dana).status_code == 200
-    assert client.patch(f"/api/assignments/{jobs[1]['id']}", json={"status": "skipped"},
+    assert client.patch(f"/api/assignments/{jobs[1]['id']}",
+                        json={"status": "skipped", "reason": "Rate too low."},
                         headers=dana).status_code == 200
 
     data = client.get(f"/api/dashboard/me?batch_id={batch_id}", headers=dana).json()
