@@ -997,3 +997,184 @@ a.btn { display: inline-block; border-bottom: none; }
   white-space: nowrap;
   border: 0;
 }
+
+/* ═══ The manager's summary ═══════════════════════════════════════════════
+ *
+ * The plain-English half of the manager's screen. Its own block because the
+ * pieces here are read once a morning by somebody who does not use the rest of
+ * the app, so they are sized and spaced to be skimmed rather than worked in.
+ */
+
+/* ── What needs you. Each item states its urgency in a word as well as a
+      colour, so the ordering survives a phone in sunlight and every common
+      kind of colour blindness. */
+.acts { display: flex; flex-direction: column; gap: var(--s2); }
+.act {
+  display: flex;
+  gap: var(--s4);
+  align-items: flex-start;
+  padding: 12px var(--s4);
+  border: 1px solid var(--rule);
+  border-left-width: 3px;
+  border-radius: var(--r2);
+  background: var(--surface);
+  animation: rise var(--t3) var(--out) both;
+}
+.act-body { flex: 1; min-width: 0; }
+.act-body b { font-family: var(--display); font-size: var(--t-md); line-height: 1.4; }
+.act-tag {
+  flex: 0 0 auto;
+  min-width: 104px;
+  margin-top: 1px;
+  font: 600 var(--t-xs)/1.5 var(--ui);
+  letter-spacing: 0.01em;
+}
+.act-now   { border-left-color: var(--bad);  background: var(--bad-soft); }
+.act-now   .act-tag { color: var(--bad-text); }
+.act-chase { border-left-color: var(--warn); background: var(--warn-soft); }
+.act-chase .act-tag { color: var(--warn-text); }
+.act-today { border-left-color: var(--a);    background: var(--a-soft); }
+.act-today .act-tag { color: var(--a-text); }
+/* The step below "worth chasing": real work, on no clock. It sits on the plain
+   surface rather than a tint, so the tinted rows above it stay the ones that
+   catch the eye across a room. */
+.act-next  { border-left-color: var(--rule-strong); }
+.act-next  .act-tag { color: var(--faint); }
+.act-clear { border-left: 3px solid var(--ok); background: var(--ok-soft); }
+
+/* The button that fixes the thing the row is about. A screen that reports a
+   problem without a route to it is a dead end. */
+.act-go { flex: 0 0 auto; align-self: center; white-space: nowrap; }
+
+@media (max-width: 660px) {
+  .act { flex-wrap: wrap; }
+  .act-tag { min-width: 0; }
+  .act-body { flex: 1 1 100%; order: 2; }
+  .act-go { order: 3; align-self: flex-start; }
+}
+
+/* ── The four headline numbers. Deliberately larger and fewer than `.stats`:
+      a row of nine figures is a wall the eye slides off, and the ones that
+      mattered were in the middle of it. */
+.heads {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--s3);
+}
+.head-card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r3);
+  padding: var(--s4);
+  box-shadow: var(--sh1);
+}
+/* Which window the number counts over. Above the figure rather than below it,
+   because a reader who has already taken the number in has stopped reading —
+   and two of these four cards are all-time while two are this round. */
+.head-scope {
+  display: block;
+  margin-bottom: 3px;
+  font: 500 10px/1 var(--ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.head-card > b {
+  display: block;
+  font: 600 34px/1.05 var(--ui);
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+.head-card > b.is-good { color: var(--ok-text); }
+.head-card > b.is-bad  { color: var(--bad-text); }
+.head-label {
+  display: block;
+  margin-top: 3px;
+  font: 500 var(--t-sm)/1.35 var(--ui);
+  color: var(--ink);
+}
+
+/* ── The flow, drawn to one shared scale. Four boxes with arrows between them
+      hid the only thing worth seeing: the drop. A thousand applications and
+      seventy interviews look identical when each is a number in its own box. */
+.flow {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) auto minmax(90px, 1fr) minmax(0, auto);
+  gap: 9px var(--s3);
+  align-items: center;
+}
+.flow-label { font-size: var(--t-sm); }
+.flow-value { font-size: var(--t-sm); font-variant-numeric: tabular-nums; text-align: right; }
+.flow-track {
+  display: block;
+  height: 14px;
+  background: var(--sunk);
+  border-radius: var(--r1);
+  overflow: hidden;
+}
+/* Square where it leaves the baseline, rounded where it ends — the rounding
+   marks the measured end, so it must not also soften the origin. */
+.flow-track i {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  background: var(--a);
+  border-radius: 0 4px 4px 0;
+  transition: width var(--t3) var(--out);
+}
+.flow-foot { font-size: var(--t-xs); white-space: nowrap; }
+
+@media (max-width: 620px) {
+  .flow { grid-template-columns: 1fr auto; }
+  .flow-track, .flow-foot { grid-column: 1 / -1; }
+}
+
+.dup-figure {
+  display: block;
+  font: 600 34px/1.05 var(--ui);
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+.dup-figure.is-bad { color: var(--bad-text); }
+
+/* ── How much of a handed-out list somebody got through. Three states, not a
+      series, so they wear the status ramp — and the 2px gaps are what stop two
+      touching segments reading as one longer one. */
+.listbar { display: flex; gap: 2px; height: 7px; border-radius: var(--rf); overflow: hidden; }
+.listbar.is-empty { background: var(--rule); }
+.listbar i { display: block; height: 100%; border-radius: 1px; transition: width var(--t3) var(--out); }
+
+.legend { font-size: var(--t-xs); color: var(--slate); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { display: block; width: 10px; height: 10px; border-radius: 2px; }
+
+/* ── Jobs found per day. Taller than `.spark` because this one is read for its
+      shape rather than glanced at beside a number. */
+.days { display: block; width: 100%; height: 96px; }
+
+/* ── The detail below the summary, folded away by default. A manager who wants
+      it opens it; one who does not never scrolls past a screen of tables. */
+.more > summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 500 var(--t-sm)/1 var(--ui);
+  color: var(--a-text);
+  padding: 9px var(--s4);
+  border: 1px solid var(--rule);
+  border-radius: var(--rf);
+  background: var(--surface);
+  transition: border-color var(--t1) var(--out), background-color var(--t1) var(--out);
+}
+.more > summary::-webkit-details-marker { display: none; }
+.more > summary:hover { border-color: var(--a-line); background: var(--a-soft); }
+.more > summary::before { content: "▸"; font-size: 10px; }
+.more[open] > summary::before { content: "▾"; }
+.more[open] > summary { margin-bottom: var(--s5); }
+/* Reference rather than a section: a tighter gap, and it never grows a heading
+   of its own weight. */
+.sheetcard > summary { font-weight: 400; color: var(--slate); }
+.sheetcard > summary:hover { color: var(--a-text); }
+.sheetcard[open] > summary { margin-bottom: var(--s3); }

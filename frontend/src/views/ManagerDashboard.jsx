@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { api, safeUrl } from "../api.js";
 import {
-  AssessmentBoard, Availability, CyclePicker, DateRange, DeveloperBoard, Funnel,
-  InterviewRows, Loading, Progress, RangeReport, Skills, Sparkline, StageLadder,
-  Stalled, TeamBoard, Tiles, sinceText,
+  AssessmentBoard, Availability, CyclePicker, DateRange, DayByDay, DeveloperBoard,
+  Flow, Funnel, InterviewRows, Loading, RangeReport, Rounds, Skills,
+  StageLadder, Stalled, TeamBoard, Tiles, sinceText,
 } from "./widgets.jsx";
+import { DoubledUp, Headline, NeedsYou, PeopleTable } from "./ManagerSummary.jsx";
 import PersonDashboard from "./PersonDashboard.jsx";
 
 /** One developer, close up.
@@ -189,9 +190,9 @@ function ProfileDetail({ profileId, batchId, dateRange, onClose }) {
       />
 
       <div>
-        <h3>Logged day by day</h3>
-        <div className="card pad" style={{ marginTop: 8 }}>
-          <Sparkline series={data.activity} />
+        <h3>Jobs found, day by day</h3>
+        <div style={{ marginTop: 8 }}>
+          <DayByDay series={data.activity} />
         </div>
       </div>
 
@@ -308,41 +309,6 @@ function PersonView({ person, batchId, dateRange, onBatchChange, onDateRangeChan
   );
 }
 
-/** The duplicate rate over recent cycles.
- *
- * The number a manager should actually be steering: the share of the team's
- * typing that two profiles spent on the same posting. Drawn as bars rather
- * than a table because the only question is whether it is going down.
- */
-function History({ rows }) {
-  if (rows.length < 2) return null;
-  const peak = Math.max(1, ...rows.map((r) => r.duplicate_pct));
-  return (
-    <section>
-      <h3>Duplicated effort, cycle by cycle</h3>
-      <p className="hint" style={{ marginTop: 3, maxWidth: 640 }}>
-            Rows handed in that a second profile had already found.
-          </p>
-      <div className="card pad scroll">
-        <div className="history">
-          {rows.map((row) => (
-            <div className="history-col" key={row.id} title={`${row.duplicates} of ${row.rows_read} rows`}>
-              <span className="mono history-value">{row.duplicate_pct}%</span>
-              <div className="history-bar">
-                <i style={{
-                  height: `${Math.max(3, (row.duplicate_pct / peak) * 100)}%`,
-                  background: row.duplicate_pct > 20 ? "var(--brick)" : "var(--pine)",
-                }} />
-              </div>
-              <span className="muted history-label truncate">{row.name}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
 export default function ManagerDashboard({ onOpenBatches }) {
   const [data, setData] = useState(null);
   const [batchId, setBatchId] = useState(null);
@@ -422,290 +388,84 @@ export default function ManagerDashboard({ onOpenBatches }) {
   const boardOpen = !!settings?.team_board_visible;
   const closedCount = people.filter((p) => p.role !== "admin" && !p.dashboard_visible).length;
 
+  const openTheirScreen = (person) => { setOpenPerson(person); setOpenProfile(null); };
+
   return (
-    <div className="stack">
+    <div className="stack" style={{ gap: 22 }}>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
-          <h1>Progress</h1>
+          <h1>How the team is doing</h1>
           <p className="muted" style={{ marginTop: 3 }}>
             {batch
-              ? <>Cycle <b>{batch.name}</b> · {batch.status === "open" ? "running" : "closed"}
-                  {batch.last_built_at && <> · lists rebuilt {sinceText(batch.last_built_at)}</>}</>
-              : "No cycle has been opened yet."}
+              ? <>Round of work: <b>{batch.name}</b> · {batch.status === "open"
+                  ? "still running, so these numbers are still moving"
+                  : "finished"}
+                  {batch.last_built_at && <> · lists last shared out {sinceText(batch.last_built_at)}</>}</>
+              : "No round of work has been started yet."}
           </p>
         </div>
         <div className="row">
-          <CyclePicker batches={data.batches} value={batchId || batch?.id} onChange={(id) => {
+          <CyclePicker batches={data.batches} value={batchId || batch?.id}
+                       label="Round" onChange={(id) => {
             setBatchId(id);
             setOpenProfile(null);
           }} />
           <DateRange {...dateRange} onChange={setDateRange} />
-          {onOpenBatches && <button className="ghost" onClick={onOpenBatches}>Run the cycle</button>}
+          {onOpenBatches && <button className="ghost" onClick={onOpenBatches}>Run the round</button>}
         </div>
       </div>
 
       {note && <div className={note.bad ? "notice" : "notice ok"}>{note.text}</div>}
 
-      <Tiles items={[
-        { label: "profiles handed in", value: `${org.handed_in}/${org.expected}`,
-          tone: org.handed_in < 2 ? "brick" : undefined,
-          hint: "Two sheets are the minimum before anything can be compared." },
-        { label: "jobs found by their own profiles", value: org.own_found },
-        { label: "jobs found by colleagues", value: org.from_others },
-        { label: "postings found twice", value: org.duplicates,
-          tone: org.duplicates ? "brick" : undefined,
-          foot: `${org.wasted_rows} rows typed twice · ${org.duplicate_pct}%`,
-          hint: "Postings more than one profile logged. Counted once each, however many people found them." },
-        { label: "places on lists", value: org.assigned },
-        { label: "applied from those lists", value: org.applied, tone: "pine" },
-        { label: "skipped from those lists", value: org.skipped },
-        { label: "of all lists worked through", value: `${org.done_pct}%` },
-      ]} />
-
-      {missing.length > 0 && (
-        <div className="notice">
-          <b>Waiting on {missing.length} profile{missing.length === 1 ? "" : "s"}.</b>{" "}
-          {missing.map((row) => `${row.name}${row.person ? ` (${row.person})` : ""}`).join(", ")}
-          {" "}{missing.length === 1 ? "has" : "have"} not handed in for this cycle. The lists
-          rebuild without them until they do.
-        </div>
-      )}
-
-      {diary && diary.counts.awaiting_time > 0 && (
-        <div className="notice gate">
-          <b>{diary.counts.awaiting_time} {diary.counts.awaiting_time === 1
-            ? "reply" : "replies"} waiting on a time.</b> Nobody has anything to turn up to yet.
-        </div>
-      )}
-
-      {diary && diary.counts.today > 0 && (
-        <div className="notice gate">
-          <b>{diary.counts.today} interview{diary.counts.today === 1 ? "" : "s"} today.</b>{" "}
-          {diary.today.map((row) => `${row.when.time} ${row.profile}`
-            + `${row.client ? ` · ${row.client}` : ""}`).join(" · ")} — Eastern time.
-        </div>
-      )}
-
-      {diary && diary.counts.awaiting_outcome > 0 && (
-        <div className="notice">
-          <b>{diary.counts.awaiting_outcome} interview
-          {diary.counts.awaiting_outcome === 1 ? "" : "s"} with no outcome.</b> Every rate below
-          reads low until somebody says.
-        </div>
-      )}
-
-      {data.assessments?.counts.overdue > 0 && (
-        <div className="notice">
-          <b>{data.assessments.counts.overdue} take-home
-          {data.assessments.counts.overdue === 1 ? "" : "s"} past the deadline.</b> Nothing else
-          here shows this.
-        </div>
-      )}
-
-      {diary?.counts.stalled > 0 && (
-        <div className="notice">
-          <b>{diary.counts.stalled} conversation{diary.counts.stalled === 1 ? "" : "s"} cleared
-          a round, then stopped.</b> They read as successes everywhere else.
-        </div>
-      )}
+      {/* First, and on its own. Everything below is the picture; this is the
+          list of things that will not fix themselves. */}
+      <NeedsYou org={org} missing={missing} diary={diary} assessments={data.assessments} />
 
       <section className="stack" style={{ gap: 10 }}>
         <div>
-          <h2>What the applications produced</h2>
+          <h2>The four numbers</h2>
           <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            Everything above counts effort. This is the part a client decides.
+            Left to right is the order the work happens in: applications go out, some of
+            them come off a colleague's sheet, a few clients want to talk, and a few of
+            those say yes. The grey word on each card says what it counts over.
           </p>
         </div>
-        <StageLadder rows={data.funnel?.by_stage} />
-        <p className="muted">Round progression: {data.funnel?.rounds?.initial || 0} initial,
-          {" "}{data.funnel?.rounds?.two_or_more || 0} reached round 2,
-          {" "}{data.funnel?.rounds?.three_or_more || 0} reached round 3+.</p>
-        <Funnel data={data.funnel} awaiting={diary?.counts.awaiting_outcome || 0}
-                note="Applications are all-time across the workspace. Interviews are never
-                      filtered to a cycle: a reply that lands three weeks late belongs to the
-                      work that earned it, not to whichever cycle happened to be open." />
-
-        {diary?.today.length > 0 && (
-          <div>
-            <h3>Interviews today</h3>
-            <div style={{ marginTop: 8 }}>
-              <InterviewRows rows={diary.today} showProfile />
-            </div>
-          </div>
-        )}
-        {diary?.upcoming.length > 0 && (
-          <div>
-            <h3>Coming up</h3>
-            <div style={{ marginTop: 8 }}>
-              <InterviewRows rows={diary.upcoming.slice(0, 12)} showProfile />
-            </div>
-          </div>
-        )}
-
-        {/* Read-only from the workspace view. Whoever runs that profile books
-            the next round, and their screen is one click away under The
-            developers — a manager quietly booking into somebody else's client
-            relationship is how one reply becomes two conversations. */}
-        <Stalled rows={diary?.stalled} />
-
-        <AssessmentBoard
-          data={data.assessments}
-          heading="Take-homes across the workspace"
-          note="Set by a BD, done by a developer. The only work here with a deadline."
-          limit={12}
-        />
+        <Headline org={org} funnel={data.funnel} />
       </section>
 
       <section className="stack" style={{ gap: 10 }}>
         <div>
-          <h2>The developers</h2>
+          <h2>What the applications turned into</h2>
           <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            Who is behind each profile, and what is in their diary.
-            {" "}<b>Open</b> shows their screen as they see it.
+            Everything else on this page counts effort, and effort goes up when people
+            work harder. This is the part a client decides, and it only goes up when the
+            work was worth sending.
           </p>
         </div>
-        <DeveloperBoard rows={data.developers || []} onOpen={(row) => {
-          setOpenDev(row);
-          setOpenPerson(null);
-          setOpenProfile(null);
-        }} />
-      </section>
-
-      {openDev && (
-        <DeveloperView person={openDev} batchId={batchId || batch?.id}
-                       dateRange={dateRange}
-                       onClose={() => setOpenDev(null)} />
-      )}
-
-      <section className="card pad stack" style={{ gap: 12 }}>
-        <div>
-          <h2>Who can see what</h2>
-          <p className="muted" style={{ marginTop: 3, maxWidth: 680 }}>
-            Two separate questions. You can see all of it whatever these say.
-          </p>
-        </div>
-
-        <div className="notice ok gate">
-          <b>1. Can a person see their own figures?</b> Off until you open it, one person at a
-          time, in the <b>Their dashboard</b> column below — or from the switch on their own
-          dashboard, which <b>Open</b> puts you inside.
-          {closedCount > 0
-            ? ` ${closedCount} ${closedCount === 1 ? "person has" : "people have"} no dashboard yet.`
-            : " Everyone on the team has theirs."}
-          {" "}Closing it takes nothing away from their work: their list and the sheet they hand
-          in are untouched, only the screen of figures goes.
-        </div>
-
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
-            <b style={{ fontFamily: "var(--display)" }}>2. Can they see each other?</b>
-            <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            Every profile side by side, ranked. Only reaches people who already
-            have a dashboard.
-          </p>
-          </div>
-          <label className="row" style={{ gap: 8 }}>
-            <input type="checkbox" checked={boardOpen} disabled={saving}
-                   onChange={(e) => toggleBoard(e.target.checked)} />
-            <b style={{ fontFamily: "var(--display)", color: boardOpen ? "var(--pine)" : "var(--slate)" }}>
-              {boardOpen ? "Open to the team" : "Manager only"}
-            </b>
-          </label>
-        </div>
-        {boardOpen && (
-          <p className="hint">
-            Take one profile off it under <b>Every profile</b> below.
-          </p>
-        )}
-      </section>
-
-      <section>
-        <h3>Jobs logged across the team</h3>
-        <p className="muted" style={{ margin: "3px 0 9px" }}>
-          Every profile, over the last thirty days, in Eastern time.
-        </p>
-        <div className="card pad"><Sparkline series={data.activity} /></div>
+        <Flow funnel={data.funnel} awaiting={diary?.counts.awaiting_outcome || 0} />
       </section>
 
       <section className="stack" style={{ gap: 10 }}>
         <div>
-          <h2>Each person</h2>
-          <p className="hint" style={{ marginTop: 3 }}>
-            Profiles added up per person. Open a row to see them separately.
+          <h2>Effort spent twice</h2>
+          <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+            Two people going out and finding the same job. It is the one thing on this
+            page that costs money rather than making it, and the whole reason everybody
+            hands their sheet into one place.
           </p>
         </div>
-        <div className="card scroll">
-          <table className="board">
-            <thead>
-              <tr>
-                <th>Person</th>
-                <th className="num">Profiles</th>
-                <th className="num">Handed in</th>
-                <th className="num">Logged</th>
-                <th className="num" title="Jobs they logged that a colleague had already found">
-                  Also found
-                </th>
-                <th className="num">List</th>
-                <th className="num">Applied</th>
-                <th style={{ width: 150 }}>Worked through</th>
-                <th>Last logged</th>
-                <th title="Whether this person may open their own dashboard">Their dashboard</th>
-              </tr>
-            </thead>
-            <tbody>
-              {people.map((person) => (
-                <React.Fragment key={person.user_id}>
-                    <tr style={{ cursor: "pointer" }}
-                      onClick={() => { setOpenPerson(person); setOpenProfile(null); }}>
-                    <td>
-                      <b>{person.name}</b>
-                      {person.role === "admin" && <span className="pill" style={{ marginLeft: 6 }}>manager</span>}
-                      <div className="muted mono" style={{ fontSize: 11 }}>{person.email}</div>
-                    </td>
-                    <td className="mono num">{person.runs}</td>
-                    <td className="mono num"
-                        style={{ color: person.runs && person.handed_in < person.runs ? "var(--brick)" : undefined }}>
-                      {person.handed_in}/{person.runs}
-                    </td>
-                    <td className="mono num">{person.logged}</td>
-                    <td className="mono num" style={{ color: person.duplicates ? "var(--brick)" : undefined }}>
-                      {person.duplicates}
-                    </td>
-                    <td className="mono num">{person.assigned}</td>
-                    <td className="mono num"><b>{person.applied}</b></td>
-                    <td>
-                      <Progress applied={person.applied} skipped={person.skipped} pending={person.pending} />
-                      <span className="muted mono" style={{ fontSize: 11 }}>{person.done_pct}%</span>
-                    </td>
-                    <td className="muted">{sinceText(person.last_logged)}</td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
-                        <label className="row" style={{ gap: 5 }}>
-                          <input type="checkbox" checked={!!person.dashboard_visible}
-                                 disabled={saving || person.role === "admin"}
-                                 title={person.role === "admin"
-                                   ? "Managers always have their dashboard."
-                                   : `Let ${person.name} see their own figures`}
-                                 onChange={(e) => togglePerson(person, e.target.checked)} />
-                          <span className={person.dashboard_visible ? "pill on" : "pill off"}>
-                            {person.dashboard_visible ? "open" : "closed"}
-                          </span>
-                        </label>
-                        <button className="ghost" style={{ padding: "5px 9px", fontSize: 12 }}
-                                onClick={() => { setOpenPerson(person); setOpenProfile(null); }}>
-                          Open
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                </React.Fragment>
-              ))}
-              {!people.length && (
-                <tr><td colSpan={10} className="muted">Nobody on the team yet.</td></tr>
-              )}
-            </tbody>
-          </table>
+        <DoubledUp org={org} history={data.history} />
+      </section>
+
+      <section className="stack" style={{ gap: 10 }}>
+        <div>
+          <h2>How each person is doing</h2>
+          <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+            One row per person, busiest first, with everything they run added together.
+          </p>
         </div>
+        <PeopleTable people={people} onOpen={openTheirScreen}
+                     onToggle={togglePerson} busy={saving} />
       </section>
 
       {openPerson && (
@@ -728,32 +488,154 @@ export default function ManagerDashboard({ onOpenBatches }) {
 
       <section className="stack" style={{ gap: 10 }}>
         <div>
-          <h2>Every profile</h2>
-          <p className="muted" style={{ marginTop: 3 }}>
-            Click a row to open it. Ranked by jobs applied to this cycle.
+          <h2>Jobs found, day by day</h2>
+          <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+            The whole team over the last thirty days, on Eastern time. Weekends are
+            drawn paler, so a quiet Saturday does not read as a team that stopped.
           </p>
         </div>
-        <TeamBoard rows={profiles} onOpen={setOpenProfile} />
-        {boardOpen && (
-          <div className="card pad">
-            <h3>On the team board</h3>
-            <p className="muted" style={{ margin: "3px 0 10px" }}>
-              Uncheck a profile to keep it off the shared board. It stays on this screen.
-            </p>
-            <div className="row" style={{ gap: 14 }}>
-              {profiles.map((row) => (
-                <label key={row.profile_id} className="row" style={{ gap: 6 }}>
-                  <input type="checkbox" checked={row.shared}
-                         onChange={(e) => shareProfile(row.profile_id, e.target.checked)} />
-                  {row.name}
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
+        <DayByDay series={data.activity} />
       </section>
 
-      <History rows={data.history} />
+      {/* Everything past here is detail. Folded away because a manager who
+          opens this screen once a morning should be finished by now — and the
+          things they came for stop being findable if six tables sit under
+          them. Opening it is one click and the browser remembers nothing, so
+          the screen is the same tomorrow. */}
+      <details className="more">
+        <summary>Show the detail — interviews, tests, developers, every profile</summary>
+
+        <div className="stack" style={{ gap: 22 }}>
+          <section className="stack" style={{ gap: 10 }}>
+            <div>
+              <h2>The conversations, round by round</h2>
+              <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+                How far each client conversation got, and where they stop. Interviews are
+                never counted against one round of work: a reply that lands three weeks
+                late belongs to the applications that earned it.
+              </p>
+            </div>
+            <StageLadder rows={data.funnel?.by_stage} />
+            <Rounds rounds={data.funnel?.rounds} />
+
+            {diary?.today.length > 0 && (
+              <div>
+                <h3>Today</h3>
+                <div style={{ marginTop: 8 }}>
+                  <InterviewRows rows={diary.today} showProfile />
+                </div>
+              </div>
+            )}
+            {diary?.upcoming.length > 0 && (
+              <div>
+                <h3>Coming up</h3>
+                <div style={{ marginTop: 8 }}>
+                  <InterviewRows rows={diary.upcoming.slice(0, 12)} showProfile />
+                </div>
+              </div>
+            )}
+
+            {/* Read-only from here. Whoever runs that profile books the next
+                round, and their screen is one click away under the developers —
+                a manager quietly booking into somebody else's client
+                relationship is how one reply becomes two conversations. */}
+            <Stalled rows={diary?.stalled} />
+
+            <AssessmentBoard
+              data={data.assessments}
+              heading="Tests clients have set"
+              note="Set by whoever runs the profile, done by the developer behind it. The only work here with a deadline on it."
+              limit={12}
+            />
+          </section>
+
+          <section className="stack" style={{ gap: 10 }}>
+            <div>
+              <h2>The developers</h2>
+              <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+                Who is behind each profile, and whether they could take work this week.
+                {" "}<b>Open</b> shows their screen as they see it.
+              </p>
+            </div>
+            <DeveloperBoard rows={data.developers || []} onOpen={(row) => {
+              setOpenDev(row);
+              setOpenPerson(null);
+              setOpenProfile(null);
+            }} />
+          </section>
+
+          {openDev && (
+            <DeveloperView person={openDev} batchId={batchId || batch?.id}
+                           dateRange={dateRange}
+                           onClose={() => setOpenDev(null)} />
+          )}
+
+          <section className="stack" style={{ gap: 10 }}>
+            <div>
+              <h2>Every profile separately</h2>
+              <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+                One person can run several profiles. This is each of them on its own,
+                best first. Click a row to open it.
+              </p>
+            </div>
+            <TeamBoard rows={profiles} onOpen={setOpenProfile} />
+          </section>
+
+          <section className="card pad stack" style={{ gap: 12 }}>
+            <div>
+              <h2>Who can see what</h2>
+              <p className="muted" style={{ marginTop: 3, maxWidth: 680 }}>
+                Two separate questions. You can see all of it whatever these say.
+              </p>
+            </div>
+
+            <div className="notice ok gate">
+              <b>1. Can a person see their own figures?</b> Off until you turn it on, one
+              person at a time, in the <b>Own figures</b> column further up this page.
+              {closedCount > 0
+                ? ` ${closedCount} ${closedCount === 1 ? "person cannot" : "people cannot"} see theirs yet.`
+                : " Everybody on the team can see theirs."}
+              {" "}Turning it off takes nothing away from their work — their list and the
+              sheet they hand in are untouched, only the screen of figures goes.
+            </div>
+
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <b style={{ fontFamily: "var(--display)" }}>2. Can they see each other?</b>
+                <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+                  Every profile side by side, ranked. Only reaches people who can already
+                  see their own figures.
+                </p>
+              </div>
+              <label className="row" style={{ gap: 8 }}>
+                <input type="checkbox" checked={boardOpen} disabled={saving}
+                       onChange={(e) => toggleBoard(e.target.checked)} />
+                <b style={{ fontFamily: "var(--display)",
+                            color: boardOpen ? "var(--ok-text)" : "var(--slate)" }}>
+                  {boardOpen ? "The team can see it" : "Only you can see it"}
+                </b>
+              </label>
+            </div>
+
+            {boardOpen && (
+              <div>
+                <p className="hint" style={{ marginBottom: 8 }}>
+                  Untick a profile to keep it off the shared board. It stays on this screen.
+                </p>
+                <div className="row" style={{ gap: 14 }}>
+                  {profiles.map((row) => (
+                    <label key={row.profile_id} className="row" style={{ gap: 6 }}>
+                      <input type="checkbox" checked={row.shared}
+                             onChange={(e) => shareProfile(row.profile_id, e.target.checked)} />
+                      {row.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      </details>
     </div>
   );
 }

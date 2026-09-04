@@ -1,8 +1,8 @@
 import React from "react";
 import {
-  AssessmentBoard, CyclePicker, DateRange, Funnel, InterviewRows, NextInterview,
-  ProfileCard, RangeReport, Sparkline, StageLadder, Stalled, TeamBoard, Tiles,
-  sinceText,
+  AssessmentBoard, BigFigures, CyclePicker, DateRange, DayByDay, Flow,
+  InterviewRows, NextInterview, ProfileCard, RangeReport, StageLadder, Stalled,
+  TeamBoard, Tiles, sinceText,
 } from "./widgets.jsx";
 
 /** One person's progress.
@@ -56,13 +56,15 @@ export default function PersonDashboard({
           <h1>{viewingAs ? `${viewingAs}'s dashboard` : "Your dashboard"}</h1>
           <p className="muted" style={{ marginTop: 3 }}>
             {batch
-              ? <>Cycle <b>{batch.name}</b> · {batch.status === "open" ? "running" : "closed"}
-                  {batch.last_built_at && <> · lists rebuilt {sinceText(batch.last_built_at)}</>}</>
-              : "No cycle has been opened yet."}
+              ? <>Round <b>{batch.name}</b> · {batch.status === "open"
+                  ? "still running, so these numbers are still moving" : "finished"}
+                  {batch.last_built_at && <> · lists last shared out {sinceText(batch.last_built_at)}</>}</>
+              : "No round of work has been started yet."}
           </p>
         </div>
         <div className="stack" style={{ alignItems: "flex-end", gap: 8 }}>
-          <CyclePicker batches={data.batches} value={batchId || batch?.id} onChange={onBatchChange} />
+          <CyclePicker batches={data.batches} value={batchId || batch?.id}
+                     label="Round" onChange={onBatchChange} />
           {onDateRangeChange && <DateRange {...dateRange} onChange={onDateRangeChange} />}
         </div>
       </div>
@@ -92,8 +94,8 @@ export default function PersonDashboard({
             </b>
             <p className="muted" style={{ marginTop: 2 }}>
               {left === 0
-                ? "Nothing left to work. New jobs land here as colleagues log theirs."
-                : `Nobody running ${whose} profiles has applied to these. Marking them applied or skipped is what keeps the next cycle accurate.`}
+                ? "Nothing left to do. More land here as colleagues hand in what they found."
+                : `A colleague found these and nobody here has applied to them yet. Marking each one applied — or turned down, with a reason — is what stops it coming back next round.`}
             </p>
           </div>
         </div>
@@ -102,31 +104,50 @@ export default function PersonDashboard({
         )}
       </section>
 
+      {/* Four figures, not the ten that were here — four of which needed a
+          tooltip to be read at all, which on a screen somebody skims once a
+          morning means they were not read. The rest are still below, in one
+          quiet row, because none of them is worth a headline on their own. */}
+      <BigFigures items={[
+        { key: "sent", scope: "this round",
+          value: totals.own_found + totals.from_others,
+          label: "applications sent",
+          body: `Everything ${viewingAs || "you"} applied for this round, whether `
+              + "it was found here or handed over by a colleague.",
+          tone: "good" },
+        { key: "shared", scope: "this round", value: totals.from_others,
+          label: "of those, found by a colleague",
+          body: "Work that came off somebody else's sheet. This is the part that "
+              + "would not have happened without everybody handing in to one place." },
+        { key: "wasted", scope: "this round", value: totals.duplicates,
+          label: "also found by somebody else",
+          body: "A posting two people both went out and found. The search that "
+              + "turned it up the second time was time spent for nothing.",
+          tone: totals.duplicates ? "bad" : undefined },
+        { key: "talking", scope: "all time",
+          value: data.funnel?.interviews || 0,
+          label: "clients who wanted to talk",
+          body: "Interviews off every application ever sent under these names. A "
+              + "reply often lands weeks after the application that earned it.",
+          tone: data.funnel?.interviews ? "good" : undefined },
+      ]} />
+
       <Tiles items={[
-        { label: `jobs ${did("found")} this cycle`, value: totals.own_found },
-        { label: "jobs found by colleagues", value: totals.from_others },
-        { label: "a colleague also found", value: totals.duplicates,
-          tone: totals.duplicates ? "brick" : undefined,
-          hint: "Postings this profile and somebody else both typed in. Time spent twice on one search." },
-        { label: `handed to ${viewingAs || "you"} this cycle`, value: totals.assigned },
-        { label: `${did("marked")} applied`, value: totals.applied, tone: "pine" },
-        { label: `${did("marked")} skipped`, value: totals.skipped },
-        { label: `of ${whose} list worked through`, value: `${totals.done_pct}%` },
-        { label: `day${data.streak === 1 ? "" : "s"} logging in a row`, value: data.streak,
-          hint: "Consecutive working days with at least one job logged. Today does not break it until tomorrow." },
+        { label: `handed to ${viewingAs || "you"} this round`, value: totals.assigned },
+        { label: "turned down, with a reason", value: totals.skipped },
+        { label: "of that list worked through", value: `${totals.done_pct}%` },
+        { label: `day${data.streak === 1 ? "" : "s"} in a row with work logged`,
+          value: data.streak,
+          hint: "Working days in a row with at least one job logged. Today does not "
+              + "break it until tomorrow." },
         diary && !rangeActive && { label: "interviews today", value: diary.counts.today,
           tone: diary.counts.today ? "petrol" : undefined,
-          foot: diary.counts.week ? `${diary.counts.week} in seven days` : undefined,
-          hint: "Against the profiles these figures cover. Eastern time." },
-        // Only shown once there is one. A tile reading zero take-homes on a
-        // team that has never been sent one is a column of noise.
+          foot: diary.counts.week ? `${diary.counts.week} in the next seven days` : undefined },
         tests?.counts.total ? {
-          label: "take-homes outstanding", value: tests.counts.open,
+          label: "tests still to do", value: tests.counts.open,
           tone: tests.counts.overdue ? "brick" : undefined,
           foot: tests.counts.overdue
             ? `${tests.counts.overdue} past the deadline` : undefined,
-          hint: "A test a client sent. The only work here with a deadline, and the only kind "
-                + "that is lost by nobody doing anything.",
         } : null,
       ]} />
 
@@ -135,10 +156,11 @@ export default function PersonDashboard({
           <div>
             <h2>What {whose} applications turned into</h2>
             <p className="hint" style={{ marginTop: 3, maxWidth: 640 }}>
-              These only move when the work was worth sending.
+              Everything above counts effort, and effort goes up when people work
+              harder. This is the part a client decides.
             </p>
           </div>
-          <Funnel data={data.funnel} awaiting={diary.counts.awaiting_outcome} />
+          <Flow funnel={data.funnel} awaiting={diary.counts.awaiting_outcome} />
           {!rangeActive && <StageLadder rows={data.funnel.by_stage} />}
 
           {diary.today.length > 0 && (
@@ -191,16 +213,17 @@ export default function PersonDashboard({
       <AssessmentBoard
         data={tests}
         onOpen={onOpenWork}
-        heading={`Take-homes against ${whose} profiles`}
+        heading={`Tests clients set for ${whose} profiles`}
         note="A missed deadline changes nothing on screen until the client writes again."
       />
 
       <section>
-        <h3>What {viewingAs || "you"} logged, day by day</h3>
-        <p className="hint" style={{ margin: "3px 0 9px" }}>
-          The last fortnight, Eastern time.
+        <h3>Jobs {viewingAs || "you"} found, day by day</h3>
+        <p className="hint" style={{ margin: "3px 0 9px", maxWidth: 640 }}>
+          The last fortnight, Eastern time. Weekends are drawn paler, so a quiet
+          Saturday does not read as a week that stopped.
         </p>
-        <div className="card pad"><Sparkline series={data.activity} /></div>
+        <DayByDay series={data.activity} />
         <div className="card scroll" style={{ marginTop: 8 }}>
           <table>
             <thead><tr><th>Day</th><th className="num">Jobs logged</th></tr></thead>

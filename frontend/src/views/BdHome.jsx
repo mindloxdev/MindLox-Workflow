@@ -4,7 +4,8 @@ import Assessments from "./Assessments.jsx";
 import EntryTable from "./EntryTable.jsx";
 import Interviews from "./Interviews.jsx";
 import JobRecord from "./JobRecord.jsx";
-import { Availability, CopyButton, Empty, Segment, Skills } from "./widgets.jsx";
+import { ActionList, bdTodo } from "./Todo.jsx";
+import { Availability, CopyButton, CyclePicker, Empty, Segment, Skills } from "./widgets.jsx";
 
 const FIELD_LABELS = {
   url: "Job link",
@@ -281,22 +282,19 @@ export default function BdHome({ pane = null, onPaneSeen }) {
         <div>
           <h1>Your work</h1>
           <p className="muted" style={{ marginTop: 3 }}>
-            Working as <b>{profile?.name}</b>{profile?.headline ? ` · ${profile.headline}` : ""}.
+            Applying as <b>{profile?.name}</b>{profile?.headline ? ` · ${profile.headline}` : ""}
+            {batch && <> · round <b>{batch.name}</b>, {batch.status === "open"
+              ? "still taking jobs"
+              : "closed — anything new goes into the next one"}</>}.
           </p>
         </div>
-        <label>
-          Cycle&nbsp;
-          <select value={batchId || ""} onChange={(e) => setBatchId(Number(e.target.value))}>
-            {batches.map((b) => (
-              <option key={b.id} value={b.id}>{b.name} · {b.status}</option>
-            ))}
-          </select>
-        </label>
+        <CyclePicker batches={batches} value={batchId} label="Round"
+                     onChange={setBatchId} />
       </div>
 
       {profiles.length > 1 && (
         <div className="card pad">
-          <h3>Which profile are you working as?</h3>
+          <h3>Which name are you applying under?</h3>
           <div className="row" style={{ marginTop: 10 }}>
             {profiles.map((p) => (
               <button key={p.id} className={p.id === profileId ? "" : "ghost"}
@@ -310,111 +308,99 @@ export default function BdHome({ pane = null, onPaneSeen }) {
             ))}
           </div>
           <p className="hint" style={{ marginTop: 8 }}>
-            Each profile keeps its own history.
+            Each one is a separate candidate to a client, with its own developer,
+            resume and history. Everything on this screen follows whichever you pick.
           </p>
         </div>
       )}
 
-      {/* What the client is actually being handed. The resume link is the thing
-          a BD needs three seconds before they need anything else on this page. */}
-      {profile && (
-        <section className="card pad stack" style={{ gap: 10 }}>
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <h3>Who you are applying as</h3>
-              <p className="hint" style={{ marginTop: 3, maxWidth: 640 }}>
-                {profile.developer
-                  ? <>Behind <b>{profile.name}</b> is <b>{profile.developer}</b>. Booking
-                      a reply is yours; their debrief comes back here.</>
-                  : <>Nobody is attached to <b>{profile.name}</b>, so an interview booked
-                      against it reaches no one.</>}
-              </p>
-            </div>
-            {profile.developer && <Availability value={profile.availability} />}
-          </div>
+      {/* Before anything else: the short list of things that will not fix
+          themselves, hardest first, each carrying the button that fixes it.
+          These were five separate coloured banners stacked in whatever order
+          the code checked them, so an interview starting in forty minutes
+          could sit below a note about a spreadsheet. */}
+      <ActionList
+        items={bdTodo({
+          diary, tests, batch, toDo: newJobs.length,
+          handedIn: handedIn > 0, profile, go: setTab,
+        })}
+        lead="Hardest first. Each one has the button that deals with it."
+        empty={{
+          title: "You are straight.",
+          body: "No client is waiting on a time, nothing is past a deadline, your "
+              + "to-do list is clear and this round's jobs are handed in.",
+        }} />
 
-          <div className="row" style={{ gap: 20 }}>
-            <span className="row" style={{ gap: 7 }}>
-              <span className="muted">email</span>
-              <span className="mono" style={{ fontSize: 12 }}>{profile.email || "—"}</span>
-              <CopyButton value={profile.email} />
-            </span>
-            <span className="row" style={{ gap: 7 }}>
-              <span className="muted">resume</span>
-              {safeUrl(profile.resume_url) ? (
-                <>
-                  <a href={safeUrl(profile.resume_url)} target="_blank" rel="noreferrer noopener">open</a>
-                  <CopyButton value={profile.resume_url} label="copy link" />
-                </>
-              ) : (
-                <span style={{ color: "var(--brick)", fontSize: 12 }}>
-                  not set{profile.developer ? ` — ${profile.developer} adds it on their own screen` : ""}
+      {/* What the client is actually being handed. Below the list, because it
+          is reference rather than work — but never further down than this: the
+          resume link is the thing a BD reaches for three seconds before they
+          reach for anything else on the page. */}
+      {profile && (
+        <details className="more sheetcard">
+          <summary>
+            Who you are applying as — {profile.name}
+            {profile.developer ? ` · ${profile.developer}` : " · nobody attached"}
+          </summary>
+          <section className="card pad stack" style={{ gap: 10 }}>
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <h3>Who the client meets</h3>
+                <p className="hint" style={{ marginTop: 3, maxWidth: 640 }}>
+                  {profile.developer
+                    ? <>A client who says yes to <b>{profile.name}</b> is
+                        meeting <b>{profile.developer}</b>. You book the time; they say
+                        afterwards how it went, and it comes back to your diary.</>
+                    : <>Nobody is attached to <b>{profile.name}</b>, so an interview
+                        booked against it reaches no one.</>}
+                </p>
+              </div>
+              {profile.developer && <Availability value={profile.availability} />}
+            </div>
+
+            <div className="row" style={{ gap: 20 }}>
+              <span className="row" style={{ gap: 7 }}>
+                <span className="muted">email</span>
+                <span className="mono" style={{ fontSize: 12 }}>{profile.email || "—"}</span>
+                <CopyButton value={profile.email} />
+              </span>
+              <span className="row" style={{ gap: 7 }}>
+                <span className="muted">resume</span>
+                {safeUrl(profile.resume_url) ? (
+                  <>
+                    <a href={safeUrl(profile.resume_url)} target="_blank" rel="noreferrer noopener">open</a>
+                    <CopyButton value={profile.resume_url} label="copy link" />
+                  </>
+                ) : (
+                  <span style={{ color: "var(--bad-text)", fontSize: 12 }}>
+                    not set{profile.developer ? ` — ${profile.developer} adds it on their own screen` : ""}
+                  </span>
+                )}
+              </span>
+              {profile.rate && (
+                <span className="row" style={{ gap: 7 }}>
+                  <span className="muted">rate</span>
+                  <span style={{ fontSize: 12 }}>{profile.rate}</span>
                 </span>
               )}
-            </span>
-            {profile.rate && (
-              <span className="row" style={{ gap: 7 }}>
-                <span className="muted">rate</span>
-                <span style={{ fontSize: 12 }}>{profile.rate}</span>
-              </span>
-            )}
-            {profile.timezone && (
-              <span className="row" style={{ gap: 7 }}>
-                <span className="muted">hours</span>
-                <span style={{ fontSize: 12 }}>{profile.timezone}</span>
-              </span>
-            )}
-          </div>
-
-          {profile.skills && <Skills value={profile.skills} />}
-          {profile.bio && <p className="muted" style={{ maxWidth: 760 }}>{profile.bio}</p>}
-
-          {profile.availability === "booked" && (
-            <div className="notice">
-              <b>{profile.developer || profile.name} is booked up.</b> Worth checking before
-              you send more.
+              {profile.timezone && (
+                <span className="row" style={{ gap: 7 }}>
+                  <span className="muted">hours they work</span>
+                  <span style={{ fontSize: 12 }}>{profile.timezone}</span>
+                </span>
+              )}
             </div>
-          )}
-        </section>
-      )}
 
-      {diary?.awaiting_time > 0 && (
-        <div className="notice gate">
-          <b>{diary.awaiting_time} {diary.awaiting_time === 1 ? "reply" : "replies"} waiting
-          on a time.</b>{" "}
-          <button className="link" onClick={() => setTab("interviews")}>Give them one</button>
-        </div>
-      )}
+            {profile.skills && <Skills value={profile.skills} />}
+            {profile.bio && <p className="muted" style={{ maxWidth: 760 }}>{profile.bio}</p>}
 
-      {tests?.overdue > 0 && (
-        <div className="notice">
-          <b>{tests.overdue} take-home{tests.overdue === 1 ? "" : "s"} past the deadline.</b>{" "}
-          <button className="link" onClick={() => setTab("assessments")}>Open them</button>
-        </div>
-      )}
-
-      {diary?.today > 0 && (
-        <div className="notice gate">
-          <b>{diary.today} interview{diary.today === 1 ? "" : "s"} today.</b>{" "}
-          <button className="link" onClick={() => setTab("interviews")}>Open the diary</button>
-        </div>
-      )}
-
-      {diary?.stalled > 0 && (
-        <div className="notice">
-          <b>{diary.stalled} conversation{diary.stalled === 1 ? "" : "s"} cleared a round, then
-          stopped.</b>{" "}
-          <button className="link" onClick={() => setTab("interviews")}>Pick them up</button>
-        </div>
-      )}
-
-      {diary?.awaiting_outcome > 0 && (
-        <div className="notice">
-          <b>{diary.awaiting_outcome} interview
-          {diary.awaiting_outcome === 1 ? "" : "s"} with no outcome.</b>{" "}
-          Every rate reads low until somebody says.{" "}
-          <button className="link" onClick={() => setTab("interviews")}>Open the diary</button>
-        </div>
+            {profile.availability === "booked" && (
+              <div className="notice">
+                <b>{profile.developer || profile.name} is booked up.</b> Worth knowing
+                before you send more — a client who says yes this week may be told to wait.
+              </div>
+            )}
+          </section>
+        </details>
       )}
 
       {note && <div className={note.bad ? "notice" : "notice ok"}>{note.text}</div>}
@@ -422,18 +408,22 @@ export default function BdHome({ pane = null, onPaneSeen }) {
 
       {batch && (
         <>
+          {/* Named for what is behind them, not for what the database calls
+              it. "Own jobs" and "New jobs" sat side by side meaning "the ones
+              you found" and "the ones found for you", which is a distinction
+              nobody gets from those two words. */}
           <Segment
             label="What you are working on"
             value={tab}
             onChange={setTab}
             items={[
-              { key: "applied", label: "Own jobs", count: handedIn },
-              { key: "new", label: "New jobs", count: newJobs.length },
+              { key: "applied", label: "Jobs I found", count: handedIn },
+              { key: "new", label: "To apply for", count: newJobs.length },
               { key: "record", label: "All jobs" },
               { key: "interviews", label: "Interviews",
                 count: diary?.awaiting_time || diary?.today || diary?.scheduled,
                 tone: diary?.awaiting_time ? "bad" : undefined },
-              { key: "assessments", label: "Assessments",
+              { key: "assessments", label: "Tests",
                 count: tests?.open,
                 tone: tests?.overdue ? "bad" : undefined },
             ]}
@@ -446,8 +436,8 @@ export default function BdHome({ pane = null, onPaneSeen }) {
           {tab === "assessments" && (
             <Assessments
               profiles={profiles}
-              heading="Assessments"
-              intro="Take-homes across every profile you run. You set them, the developer does them."
+              heading="Tests from clients"
+              intro="Tests a client has set. You record it here; the developer behind the profile does it."
             />
           )}
 
@@ -455,7 +445,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
             <Interviews
               profiles={profiles}
               heading="Interviews"
-              intro="Every reply that became a conversation. Booking is yours; the debrief comes back here."
+              intro="Every reply that turned into a conversation. You book the time; the developer says afterwards how it went."
               showFunnel
             />
           )}
@@ -463,9 +453,11 @@ export default function BdHome({ pane = null, onPaneSeen }) {
           {tab === "applied" && (
             <section className="stack" style={{ gap: 10 }}>
               <div>
-                  <h2>Own jobs for {profile?.name}{profile?.headline ? ` · ${profile.headline}` : ""}</h2>
-                <p className="hint" style={{ marginTop: 3 }}>
-                  Hand these in so nobody is sent what this profile already used.
+                  <h2>Jobs {profile?.name} found</h2>
+                <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+                  The jobs you went out and applied for yourself this round. Handing
+                  them in is what stops a colleague spending their morning finding the
+                  same ones — and what puts them on other people&apos;s lists.
                 </p>
               </div>
 

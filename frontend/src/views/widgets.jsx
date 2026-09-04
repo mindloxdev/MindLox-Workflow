@@ -281,6 +281,200 @@ export function Empty({ title, children, action }) {
 }
 
 /** A row of headline numbers. `tone` tints the figure, not the label. */
+const _nf = new Intl.NumberFormat("en-US");
+const num = (value) => _nf.format(value || 0);
+const plural = (n, one, many) => (n === 1 ? one : many);
+
+/* ── What the applications turned into ─────────────────────────────────── */
+
+/** Applications, interviews, offers, hires — as bars you can compare by eye.
+ *
+ * Four boxes in a row with an arrow between them was the old version, and it
+ * hid the only thing worth seeing: the drop. Twelve hundred applications and
+ * seventy interviews look identical when each is a number in its own box.
+ * Drawn to one shared scale, the shape of the business is the picture.
+ *
+ * One colour on purpose. The length is the measurement — giving each bar its
+ * own colour would say the stages differ in kind, which they do not, and would
+ * be the only thing separating them for a reader who cannot tell the hues
+ * apart. Every bar is labelled with its own name and number instead.
+ */
+export function Flow({ funnel, awaiting = 0 }) {
+  if (!funnel) return null;
+
+  const steps = [
+    { key: "applications",
+      label: funnel.scoped_to_cycle ? "Applications sent" : "Applications sent, all time",
+      value: funnel.applications,
+      foot: funnel.scoped_to_cycle ? "this round" : "every round" },
+    { key: "interviews", label: "Clients who wanted to talk", value: funnel.interviews,
+      foot: funnel.applications ? `${funnel.interview_rate}% of applications` : "" },
+    { key: "offers", label: "Offers made", value: funnel.offers,
+      foot: funnel.interviews ? `${funnel.offer_rate}% of interviews` : "" },
+    { key: "hired", label: "Work actually won", value: funnel.hired,
+      foot: funnel.offers ? `${Math.round((funnel.hired / funnel.offers) * 100)}% of offers` : "" },
+  ];
+  const widest = Math.max(1, ...steps.map((step) => step.value || 0));
+
+  return (
+    <div className="card pad stack" style={{ gap: 12 }}>
+      <p style={{ maxWidth: 660, fontSize: "var(--t-sm)", lineHeight: 1.55 }}>
+        {funnel.applications
+          ? <>Of every 100 applications the team sends, about <b>{funnel.interview_rate}</b> get
+              a client talking{funnel.interviews
+                ? <> — and of every 100 of those conversations, about <b>{funnel.offer_rate}</b> end
+                    in an offer.</>
+                : "."}</>
+          : "Nothing has been sent yet, so there is nothing to measure."}
+      </p>
+
+      <div className="flow">
+        {steps.map((step) => (
+          <React.Fragment key={step.key}>
+            <span className="flow-label">{step.label}</span>
+            <span className="flow-value mono">{num(step.value)}</span>
+            <span className="flow-track">
+              {/* A real value is never allowed to render as nothing — one offer
+                  out of two thousand applications is a sliver, but a sliver is
+                  the truth and an empty row is not. Zero draws no bar at all,
+                  which is why this is a condition rather than a floor: a floor
+                  gave "no offers yet" the same mark as "one offer". */}
+              {step.value > 0 && (
+                <i style={{ width: `${Math.max(0.6, (step.value / widest) * 100)}%` }}
+                   title={`${num(step.value)} ${step.label.toLowerCase()}`} />
+              )}
+            </span>
+            <span className="flow-foot muted">{step.foot}</span>
+          </React.Fragment>
+        ))}
+      </div>
+
+      {awaiting > 0 && (
+        <p className="hint" style={{ maxWidth: 660 }}>
+          {awaiting} {plural(awaiting, "interview has", "interviews have")} been and gone
+          with no result recorded, so the bottom three bars are shorter than the truth.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** How many separate clients the team got talking, and how far each went.
+ *
+ * A chain of three sittings with one client is one conversation, not three.
+ * Counting sittings would say a team that ran one long process with a single
+ * client did better than a team that reached four clients once each, which is
+ * the exact inversion of the question.
+ */
+export function Rounds({ rounds }) {
+  if (!rounds || !rounds.conversations) return null;
+  const { conversations, one_round: once, two_plus: second,
+          three_plus: third, sittings } = rounds;
+  return (
+    <p style={{ fontSize: "var(--t-sm)", lineHeight: 1.6, maxWidth: 700 }}>
+      <b>{num(conversations)}</b> separate {plural(conversations, "client", "clients")} got
+      talking
+      {sittings > conversations && <>, over <b>{num(sittings)}</b> sittings between them</>}.
+      {" "}<b>{num(once)}</b> spoke once and went no further, and{" "}
+      <b>{num(second)}</b> got to a second round
+      {third > 0 && <> — <b>{num(third)}</b> of those to a third or beyond</>}.
+    </p>
+  );
+}
+
+/* ── Day by day ────────────────────────────────────────────────────────── */
+
+/** Jobs found per day across the whole team.
+ *
+ * Bars, not a line: these are counts of separate days, and a line sloping
+ * between Tuesday and Wednesday claims a value at midnight that nothing
+ * measured. Weekends are drawn a step back so a quiet Saturday does not read
+ * as a team that stopped working.
+ */
+export function DayByDay({ series }) {
+  if (!series?.length) return null;
+  const peak = Math.max(1, ...series.map((d) => d.count));
+  const total = series.reduce((sum, d) => sum + d.count, 0);
+  const busiest = series.reduce((best, d) => (d.count > best.count ? d : best), series[0]);
+  const workingDays = series.filter((d) => {
+    const weekday = new Date(`${d.day}T12:00:00Z`).getUTCDay();
+    return weekday !== 0 && weekday !== 6;
+  });
+  const average = workingDays.length
+    ? Math.round(workingDays.reduce((sum, d) => sum + d.count, 0) / workingDays.length)
+    : 0;
+
+  const step = 100 / series.length;
+
+  return (
+    <div className="card pad stack" style={{ gap: 10 }}>
+      <p style={{ fontSize: "var(--t-sm)", lineHeight: 1.55, maxWidth: 660 }}>
+        <b>{num(total)}</b> jobs found over the last {series.length} days — about{" "}
+        <b>{num(average)}</b> on a normal working day. The busiest was{" "}
+        <b>{num(busiest.count)}</b> on {dayName(busiest.day)}.
+      </p>
+      <svg className="days" viewBox="0 0 100 40" preserveAspectRatio="none" role="img"
+           aria-label={`${total} jobs found over ${series.length} days`}>
+        {series.map((day, i) => {
+          const weekday = new Date(`${day.day}T12:00:00Z`).getUTCDay();
+          const weekend = weekday === 0 || weekday === 6;
+          const tall = day.count ? Math.max(1.2, (day.count / peak) * 38) : 0.6;
+          return (
+            // Square ends on purpose. The viewBox is stretched to the card's
+            // width, so x and y scale by different factors and a corner radius
+            // comes out as a wide shallow ellipse rather than a corner.
+            <rect key={day.day} x={i * step + step * 0.16} y={40 - tall}
+                  width={step * 0.68} height={tall}
+                  fill={day.count ? (weekend ? "var(--a-line)" : "var(--a)") : "var(--rule)"}>
+              <title>{`${day.count} on ${dayName(day.day)}`}</title>
+            </rect>
+          );
+        })}
+      </svg>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <span className="hint">{dayName(series[0].day)}</span>
+        <span className="hint">busiest day: {num(peak)}</span>
+        <span className="hint">today</span>
+      </div>
+    </div>
+  );
+}
+
+function dayName(iso) {
+  const date = new Date(`${iso}T12:00:00Z`);
+  return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric",
+                                            timeZone: "UTC" });
+}
+
+/** A few large figures, each with the sentence that says how to read it.
+ *
+ * The counterpart to `Tiles`, and the one to reach for when there are four
+ * numbers rather than nine. A row of nine small figures is a wall the eye
+ * slides off; four with a line of explanation each are read.
+ *
+ * `scope` is the window the figure counts over — "this round", "all time".
+ * Above the number rather than below it, because a reader who has taken the
+ * number in has already stopped reading, and a figure whose window has to be
+ * guessed is worse than no figure.
+ */
+export function BigFigures({ items }) {
+  return (
+    <div className="heads">
+      {items.filter(Boolean).map((item) => (
+        <div className="head-card" key={item.key || item.label}>
+          {item.scope && <span className="head-scope">{item.scope}</span>}
+          <b className={item.tone === "good" ? "is-good"
+                      : item.tone === "bad" ? "is-bad" : undefined}>
+            {item.value}
+          </b>
+          <span className="head-label">{item.label}</span>
+          {item.body && <p className="hint" style={{ marginTop: 5 }}>{item.body}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Tiles({ items }) {
   return (
     <div className="stats">
@@ -1190,7 +1384,7 @@ export function StageLadder({ rows }) {
               }} title={`${row.lost} ended here`} />
               <span style={{
                 width: `${((row.reached - row.cleared - row.lost) / widest) * 100}%`,
-                background: "var(--line, #d8d3c8)", borderRadius: 2,
+                background: "var(--rule-strong)", borderRadius: 2,
               }} title={`${row.reached - row.cleared - row.lost} still open`} />
             </span>
             <span className="muted" style={{ minWidth: 96, fontSize: 11, textAlign: "right" }}>
