@@ -269,6 +269,9 @@ def decorate(db: Session, rows: Sequence[Interview]) -> list[dict]:
             "role": row.role,
             "mode": row.mode,
             "link": row.link,
+            # The client's own thread, kept apart from the meeting link. One
+            # is where to be at two o'clock; the other is what they asked for.
+            "email_url": row.email_url or "",
             "status": row.status,
             "stage": row.stage or "screening",
             "is_draft": row.status == "draft",

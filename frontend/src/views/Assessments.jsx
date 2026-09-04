@@ -31,6 +31,9 @@ const BLANK = {
   client: "",
   brief: "",
   link: "",
+  // The client's own email thread. Left blank here means "whatever the
+  // interview this came out of already has", which the server fills in.
+  email_url: "",
   due_at: "",
   interview_id: "",
   // The posting the test came out of. Inherited from the interview when one is
@@ -189,7 +192,7 @@ export default function Assessments({
         </div>
         {canSet && profiles.length > 0 && (
           <button className={adding ? "ghost" : ""} onClick={() => setAdding((on) => !on)}>
-            {adding ? "Never mind" : "Set an assessment"}
+            {adding ? "Never mind" : "Record a test"}
           </button>
         )}
       </div>
@@ -293,6 +296,19 @@ export default function Assessments({
               <input id="as-link" style={{ width: "100%", marginTop: 4 }}
                      placeholder="https://example.com/take-home" value={form.link}
                      onChange={(e) => setForm({ ...form, link: e.target.value })} />
+            </div>
+            <div style={{ gridColumn: "span 2" }}>
+              <label htmlFor="as-email">
+                Link to the client&apos;s email <span className="opt">optional</span>
+              </label>
+              <input id="as-email" style={{ width: "100%", marginTop: 4 }}
+                     placeholder="https://mail.google.com/mail/u/0/#inbox/…"
+                     value={form.email_url}
+                     onChange={(e) => setForm({ ...form, email_url: e.target.value })} />
+              <p className="hint" style={{ marginTop: 4, maxWidth: 640 }}>
+                Optional. Paste the client&apos;s email straight out of your inbox — in Gmail or Outlook, open the message and copy the address bar. Three weeks later it is the only place their actual words still exist. Leave it blank and it takes whichever
+                thread the interview it came out of already has.
+              </p>
             </div>
             {sittings.length > 0 && (
               <div style={{ gridColumn: "span 2" }}>
@@ -449,6 +465,12 @@ function Section({ title, rows, canSet, open, setOpen, onChange, onRemove, empty
                       {safeUrl(row.link) && (
                         <a href={safeUrl(row.link)} target="_blank" rel="noreferrer noopener">
                           the task
+                        </a>
+                      )}
+                      {safeUrl(row.email_url) && (
+                        <a href={safeUrl(row.email_url)} target="_blank" rel="noreferrer noopener"
+                           title="The client's email this came out of">
+                          their email
                         </a>
                       )}
                       <button className="link"

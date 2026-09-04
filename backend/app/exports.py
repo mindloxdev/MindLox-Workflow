@@ -16,6 +16,7 @@ WIDTHS = {"#": 5, "Job title": 46, "Company": 26, "Client": 26, "Platform": 14, 
           "BD": 20, "Applied by": 30, "People": 9, "Status": 12,
           "Found by": 24, "Found on": 18, "Description link": 46,
           "When · ET": 18, "Applied as": 20, "Developer": 20, "Role": 40,
+          "Client email": 46,
           "Round": 16, "Outcome": 12, "Follows": 18, "Reported by": 20,
           "What": 40, "Due · ET": 18, "Set by": 20, "Submitted": 18,
           "Submission": 46, "Notes": 60, "Applied on": 18}
@@ -92,7 +93,8 @@ def pipeline_workbook(interviews: list[dict], assessments: list[dict]) -> bytes:
     _write_sheet(
         book, "Conversations",
         ["When · ET", "Applied as", "Developer", "Company", "Role", "Round",
-         "Follows", "How", "Status", "Outcome", "Reported by", "Job link"],
+         "Follows", "How", "Status", "Outcome", "Reported by", "Job link",
+         "Client email"],
         [[row["when"]["label"], row["profile"], row.get("developer") or "",
           row["client"], row["role"],
           f"{row['round']} of {row['rounds']} · {row['stage']}"
@@ -100,13 +102,15 @@ def pipeline_workbook(interviews: list[dict], assessments: list[dict]) -> bytes:
           (row["follows"]["stage"] if row.get("follows") else ""),
           row["mode"], row["status"], row["outcome"],
           row.get("reported_by") or "",
-          (row["job"] or {}).get("url", "")]
+          (row["job"] or {}).get("url", ""),
+          row.get("email_url", "")]
          for row in interviews])
 
     _write_sheet(
         book, "Take-homes",
         ["What", "Company", "Applied as", "Developer", "Due · ET", "Status",
-         "Set by", "Submitted", "Submission", "Job link", "Applied on", "Notes"],
+         "Set by", "Submitted", "Submission", "Job link", "Client email",
+         "Applied on", "Notes"],
         [[row["title"], row["client"], row["profile"], row.get("developer") or "",
           (row["due"]["label"] if row.get("due") else "none set"),
           # Said in words rather than left as a status somebody has to know how
@@ -119,6 +123,7 @@ def pipeline_workbook(interviews: list[dict], assessments: list[dict]) -> bytes:
           # spreadsheet that describes one conversation two different ways is
           # the thing this whole payload is trying not to be.
           (row["job"] or {}).get("url", ""),
+          row.get("email_url", ""),
           (row["job"] or {}).get("applied_on", ""),
           row["notes"]]
          for row in assessments])

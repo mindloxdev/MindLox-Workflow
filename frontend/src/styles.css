@@ -687,6 +687,17 @@ button.pill:hover:not(:disabled) {
 .notice.gate { border-color: var(--a-line);    background: var(--a-soft); }
 .notice.warn { border-color: var(--warn-line); background: var(--warn-soft); }
 
+/* Says a field can be left alone, in the label rather than in a paragraph
+   underneath it. Somebody filling a form reads the labels and skips the prose,
+   so "optional" written only in the prose is "optional" nobody reads. */
+.opt {
+  margin-left: 6px;
+  font: 500 10px/1.6 var(--ui);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
 .truncate { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .detail {

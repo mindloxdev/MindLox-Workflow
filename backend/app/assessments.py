@@ -153,6 +153,7 @@ def decorate(db: Session, rows: Sequence[Assessment]) -> list[dict]:
             "client": row.client,
             "brief": row.brief,
             "link": row.link,
+            "email_url": row.email_url or "",
             "due": working_label(row.due_at) if row.due_at else None,
             "status": row.status,
             "submission_url": row.submission_url,

@@ -447,6 +447,13 @@ class Interview(Base):
     duration_minutes = Column(Integer, nullable=False, default=30)
     mode = Column(String(16), nullable=False, default="video")
     link = Column(Text, nullable=False, default="")
+    # Where the client's own email lives — the thread this came out of, in
+    # whatever inbox the team actually reads. Optional, and separate from
+    # `link`: that one is the thing you click at two o'clock to be in the room,
+    # this one is the thing you re-read the night before to remember what they
+    # actually asked for. Storing one in the other means whoever needs the
+    # wording opens a dead meeting room instead.
+    email_url = Column(Text, nullable=False, default="")
     status = Column(String(16), nullable=False, default="scheduled")
     # Where on the ladder this sitting is. Kept on the interview rather than on
     # the job, because one job produces several of them and each is at a
@@ -526,6 +533,13 @@ class Assessment(Base):
     client = Column(String(300), nullable=False, default="")
     brief = Column(Text, nullable=False, default="")
     link = Column(Text, nullable=False, default="")
+    # Where the client's own email lives — the thread this came out of, in
+    # whatever inbox the team actually reads. Optional, and separate from
+    # `link`: that one is the thing you click at two o'clock to be in the room,
+    # this one is the thing you re-read the night before to remember what they
+    # actually asked for. Storing one in the other means whoever needs the
+    # wording opens a dead meeting room instead.
+    email_url = Column(Text, nullable=False, default="")
     # UTC like everything else. Nullable, because plenty of clients send a test
     # with no deadline at all and inventing one would put a false red flag on
     # somebody's screen.

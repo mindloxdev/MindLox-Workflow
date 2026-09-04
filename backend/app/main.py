@@ -361,6 +361,10 @@ class InterviewIn(BaseModel):
     mode: str = "video"
     duration_minutes: int = 30
     link: str = ""
+    # The client's own email thread. Optional everywhere it appears — plenty
+    # of replies arrive by phone, or through a board's messaging, and a
+    # required field would be filled with rubbish rather than left alone.
+    email_url: str = ""
     notes: str = ""
     stage: str = "screening"
     job_id: Optional[int] = None
@@ -384,6 +388,7 @@ class NextRoundIn(BaseModel):
     mode: Optional[str] = None
     duration_minutes: Optional[int] = None
     link: str = ""
+    email_url: str = ""
     notes: str = ""
 
 
@@ -395,6 +400,7 @@ class InterviewPatch(BaseModel):
     mode: Optional[str] = None
     duration_minutes: Optional[int] = None
     link: Optional[str] = None
+    email_url: Optional[str] = None
     notes: Optional[str] = None
     # What happened, and where on the ladder it sits.
     status: Optional[str] = None
@@ -409,6 +415,9 @@ class AssessmentIn(BaseModel):
     client: str = ""
     brief: str = ""
     link: str = ""
+    # The client's own email thread. Optional; defaults to the one on the
+    # interview this came out of, because it is almost always the same thread.
+    email_url: str = ""
     # "2026-08-27T17:00" on the team's clock, or empty. Plenty of clients send
     # a test with no deadline at all, and inventing one puts a false red flag
     # on somebody's screen.
@@ -424,6 +433,7 @@ class AssessmentPatch(BaseModel):
     client: Optional[str] = None
     brief: Optional[str] = None
     link: Optional[str] = None
+    email_url: Optional[str] = None
     due_at: Optional[str] = None
     # The developer's half.
     status: Optional[str] = None
@@ -2436,6 +2446,7 @@ def create_interview(body: InterviewIn, db: Session = Depends(get_db),
                     stage=body.stage,
                     status="draft" if draft else "scheduled",
                     link=_check_link(body.link, "meeting link"),
+                    email_url=_check_link(body.email_url, "email link"),
                     notes=body.notes.strip(), previous_id=body.previous_id,
                     created_by=user.id)
     db.add(row)
@@ -2503,6 +2514,12 @@ def next_round(interview_id: int, body: NextRoundIn, db: Session = Depends(get_d
                     scheduled_at=when, duration_minutes=minutes, mode=mode,
                     stage=stage, status="draft" if draft else "scheduled",
                     link=_check_link(body.link, "meeting link"),
+                    # A second round is the same conversation with the same
+                    # client, so it is the same email thread until somebody
+                    # says otherwise — carried across like the client and the
+                    # role rather than retyped.
+                    email_url=(_check_link(body.email_url, "email link")
+                               if body.email_url else earlier.email_url or ""),
                     notes=body.notes.strip(), previous_id=earlier.id,
                     created_by=user.id)
     db.add(row)
@@ -2574,6 +2591,8 @@ def update_interview(interview_id: int, body: InterviewPatch,
         row.mode = body.mode
     if body.link is not None:
         row.link = _check_link(body.link, "meeting link")
+    if body.email_url is not None:
+        row.email_url = _check_link(body.email_url, "email link")
     if body.notes is not None:
         row.notes = body.notes.strip()
     if body.debrief is not None:
@@ -2731,6 +2750,12 @@ def create_assessment(body: AssessmentIn, db: Session = Depends(get_db),
                      job_id=body.job_id or (sitting.job_id if sitting else None),
                      title=title, client=client, brief=body.brief.strip(),
                      link=_check_link(body.link, "assessment link"),
+                     # The test almost always arrives on the same thread as the
+                     # call that produced it, so the interview's own is the
+                     # default rather than something to look up and retype.
+                     email_url=(_check_link(body.email_url, "email link")
+                                if body.email_url
+                                else (sitting.email_url or "" if sitting else "")),
                      due_at=_due(body.due_at), created_by=user.id, updated_by=user.id)
     db.add(row)
     db.commit()
@@ -2759,6 +2784,8 @@ def update_assessment(assessment_id: int, body: AssessmentPatch,
         row.brief = body.brief.strip()
     if body.link is not None:
         row.link = _check_link(body.link, "assessment link")
+    if body.email_url is not None:
+        row.email_url = _check_link(body.email_url, "email link")
     if body.due_at is not None:
         row.due_at = _due(body.due_at)
     if body.submission_url is not None:

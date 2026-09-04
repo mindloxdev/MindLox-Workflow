@@ -805,6 +805,11 @@ export function NextInterview({ row, onOpen, openLabel = "All interviews" }) {
         </div>
       </div>
       <div className="row">
+        {safeLink(row.email_url) && (
+          <a className="btn ghost" href={safeLink(row.email_url)}
+             target="_blank" rel="noreferrer noopener"
+             title="The client's email this came out of">Their email</a>
+        )}
         {safeLink(row.link) && (
           <a className="btn go" href={safeLink(row.link)} target="_blank" rel="noreferrer noopener">
             Join
@@ -1154,6 +1159,14 @@ export function InterviewRows({ rows, showProfile = true, onChange, onRemove,
                   {safeLink(row.link) && (
                     <a href={safeLink(row.link)} target="_blank" rel="noreferrer noopener">open</a>
                   )}
+                  {/* The client's own thread. Named rather than shown as a
+                      second anonymous "open", because the two links go to
+                      completely different places and picking the wrong one at
+                      two o'clock costs a meeting. */}
+                  {safeLink(row.email_url) && (
+                    <a href={safeLink(row.email_url)} target="_blank" rel="noreferrer noopener"
+                       title="The client's email this came out of">their email</a>
+                  )}
                   {/* Offered on anything that has happened and was not a no,
                       not only on the stalled ones — the moment a developer
                       says "they want me to meet the team" is the moment this
@@ -1201,13 +1214,17 @@ export function InterviewRows({ rows, showProfile = true, onChange, onRemove,
  */
 function InterviewNotes({ row, canBook, onChange, onClose }) {
   const [draft, setDraft] = React.useState(row.debrief || "");
+  const [email, setEmail] = React.useState(row.email_url || "");
   const [saving, setSaving] = React.useState(false);
-  const dirty = draft.trim() !== (row.debrief || "").trim();
+  const dirty = draft.trim() !== (row.debrief || "").trim()
+             || email.trim() !== (row.email_url || "").trim();
 
+  // One save for both fields. Two buttons in one panel is how somebody types
+  // into the second box, presses the first button, and loses what they typed.
   const save = async () => {
     setSaving(true);
     try {
-      await onChange(row.id, { debrief: draft.trim() });
+      await onChange(row.id, { debrief: draft.trim(), email_url: email.trim() });
       onClose();
     } finally {
       setSaving(false);
@@ -1221,6 +1238,32 @@ function InterviewNotes({ row, canBook, onChange, onClose }) {
         <p className="muted" style={{ marginTop: 3, maxWidth: 720 }}>
           {row.notes || "Nothing was written down."}
         </p>
+      </div>
+
+      <div>
+        <label htmlFor={`email-${row.id}`}>
+          Link to the client&apos;s email <span className="opt">optional</span>
+        </label>
+        <p className="hint" style={{ margin: "3px 0 5px", maxWidth: 620 }}>
+          Booking a reply takes ten seconds off a phone; pasting the thread in
+          usually happens later, from a desk. Either of you can add it.
+        </p>
+        {onChange ? (
+          <div className="row" style={{ gap: 8 }}>
+            <input id={`email-${row.id}`} style={{ flex: 1 }}
+                   placeholder="https://mail.google.com/mail/u/0/#inbox/…"
+                   value={email} onChange={(e) => setEmail(e.target.value)} />
+            {safeLink(row.email_url) && (
+              <a href={safeLink(row.email_url)} target="_blank" rel="noreferrer noopener">open</a>
+            )}
+          </div>
+        ) : safeLink(row.email_url) ? (
+          <a href={safeLink(row.email_url)} target="_blank" rel="noreferrer noopener">
+            open the thread
+          </a>
+        ) : (
+          <p className="muted">Nothing linked.</p>
+        )}
       </div>
 
       <div>
@@ -1242,7 +1285,7 @@ function InterviewNotes({ row, canBook, onChange, onClose }) {
       {onChange && (
         <div className="row" style={{ gap: 10 }}>
           <button onClick={save} disabled={saving || !dirty}>
-            {saving ? "Saving…" : "Save the note"}
+            {saving ? "Saving…" : "Save"}
           </button>
           <button className="ghost" onClick={onClose}>Close</button>
           <span className="muted">

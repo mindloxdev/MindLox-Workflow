@@ -30,6 +30,10 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
   // Something was started this session, so offer the way to it.
   const [started, setStarted] = useState(false);
   const [stage, setStage] = useState("screening");
+  // The client's email, pasted at the one moment somebody is certainly looking
+  // at it. Optional, and cleared with the panel so it cannot be carried onto
+  // the next row by accident.
+  const [emailUrl, setEmailUrl] = useState("");
   // The row being corrected, and the draft of it. A posting is one shared row,
   // so this edit reaches every profile holding it — which is why the server
   // only allows it to whoever first logged the job.
@@ -77,11 +81,13 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
         profile_id: row.profile_id,
         job_id: row.job_id,
         stage,
+        email_url: emailUrl.trim(),
         // No time yet — the client has replied, nothing has been agreed. It
         // lands in "waiting on a time" until somebody puts one on it.
         scheduled_at: "",
       });
       setStarting(null);
+      setEmailUrl("");
       // The toast says what happened; the route to it is the button below,
       // which is where somebody would look for it anyway.
       toast(`${made.client || "That job"} is waiting on a time under ${made.profile}.`);
@@ -266,8 +272,10 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
                       </td>
                       <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                         <button className="link"
-                                onClick={() => setStarting(
-                                  starting === rowKey(row) ? null : rowKey(row))}>
+                                onClick={() => {
+                                  setEmailUrl("");
+                                  setStarting(starting === rowKey(row) ? null : rowKey(row));
+                                }}>
                           {starting === rowKey(row) ? "never mind" : "they replied"}
                         </button>
                         {row.can_edit && (
@@ -340,6 +348,20 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
                               <p className="hint" style={{ marginTop: 3, maxWidth: 620 }}>
                                 The posting comes across as it is. No time is set —
                                 it waits under <b>Interviews</b> until you agree one.
+                              </p>
+                            </div>
+                            <div style={{ maxWidth: 620 }}>
+                              <label htmlFor="reply-email">
+                                Link to their email <span className="opt">optional</span>
+                              </label>
+                              <input id="reply-email" style={{ width: "100%", marginTop: 4 }}
+                                     placeholder="https://mail.google.com/mail/u/0/#inbox/…"
+                                     value={emailUrl}
+                                     onChange={(e) => setEmailUrl(e.target.value)} />
+                              <p className="hint" style={{ marginTop: 4 }}>
+                                You are reading their reply right now, so this is the
+                                cheapest moment there will ever be to keep it. Copy the
+                                address bar out of Gmail or Outlook.
                               </p>
                             </div>
                             <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>

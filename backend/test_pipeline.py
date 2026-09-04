@@ -660,6 +660,110 @@ def sat(web, headers, profile_id, days=-3, clock="10:00", **extra):
     return response.json()
 
 
+# --------------------------------------------------------------------------- #
+# The client's own email
+# --------------------------------------------------------------------------- #
+
+def test_an_interview_can_keep_a_link_to_the_clients_email(client, bd, applied):
+    """The meeting link is where to be at two o'clock. This is what they asked
+    for, and three weeks later it is the only place their words still exist."""
+    made = sat(client, bd, applied["profile"]["id"],
+               email_url="https://mail.google.com/mail/u/0/#inbox/FMfcgzabcd1234")
+    assert made["email_url"] == "https://mail.google.com/mail/u/0/#inbox/FMfcgzabcd1234"
+    assert made["link"] == "", "the meeting link is a different field"
+
+
+def test_the_email_link_is_optional_everywhere(client, bd, applied):
+    """Plenty of replies arrive by phone or through a board's own messaging. A
+    required field would be filled with rubbish rather than left alone."""
+    profile = applied["profile"]["id"]
+    booked = sat(client, bd, profile)
+    assert booked["email_url"] == ""
+
+    test = client.post("/api/assessments",
+                       json={"profile_id": profile, "title": "Take-home"},
+                       headers=bd)
+    assert test.status_code == 201, test.text
+    assert test.json()["email_url"] == ""
+
+
+def test_a_junk_email_link_is_refused_rather_than_stored(client, bd, applied):
+    """It ends up in an href on a colleague's screen, so it goes through the
+    same check as every other link somebody types into a form."""
+    response = client.post("/api/interviews",
+                           json={"profile_id": applied["profile"]["id"],
+                                 "scheduled_at": when(1, "10:00"),
+                                 "email_url": "javascript:alert(1)"},
+                           headers=bd)
+    assert response.status_code == 400
+    assert "http" in response.json()["detail"]
+
+
+def test_the_email_link_can_be_added_after_the_booking(client, bd, applied):
+    """A reply gets booked in ten seconds off a phone; the thread gets pasted
+    in later, from a desk."""
+    made = sat(client, bd, applied["profile"]["id"])
+    saved = client.patch(f"/api/interviews/{made['id']}",
+                         json={"email_url": "https://outlook.office.com/mail/id/AAQkAGI2threadtwo"}, headers=bd)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["email_url"] == "https://outlook.office.com/mail/id/AAQkAGI2threadtwo"
+
+
+def test_the_next_round_keeps_the_same_email_thread(client, bd, applied):
+    """A second round is the same conversation with the same client, so it is
+    the same thread \u2014 carried across like the client and the role rather than
+    looked up and retyped."""
+    first = sat(client, bd, applied["profile"]["id"], email_url="https://mail.google.com/mail/u/0/#inbox/FMfcgzabcd1234")
+    client.patch(f"/api/interviews/{first['id']}",
+                 json={"status": "done", "outcome": "passed"}, headers=bd)
+    second = client.post(f"/api/interviews/{first['id']}/next-round",
+                         json={}, headers=bd)
+    assert second.status_code == 201, second.text
+    assert second.json()["email_url"] == "https://mail.google.com/mail/u/0/#inbox/FMfcgzabcd1234"
+
+
+def test_a_second_round_on_a_new_thread_says_so(client, bd, applied):
+    """Carried across is a default, not a rule. A client who moved the
+    conversation to a different thread is a thing that happens."""
+    first = sat(client, bd, applied["profile"]["id"], email_url="https://mail.google.com/mail/u/0/#inbox/FMfcgzabcd1234")
+    client.patch(f"/api/interviews/{first['id']}",
+                 json={"status": "done", "outcome": "passed"}, headers=bd)
+    second = client.post(f"/api/interviews/{first['id']}/next-round",
+                         json={"email_url": "https://outlook.office.com/mail/id/AAQkAGI2threadtwo"}, headers=bd)
+    assert second.json()["email_url"] == "https://outlook.office.com/mail/id/AAQkAGI2threadtwo"
+
+
+def test_a_test_takes_the_thread_off_the_call_it_came_out_of(client, bd, applied):
+    """The take-home almost always arrives on the same thread as the call that
+    produced it, so that is the default rather than something to look up."""
+    profile = applied["profile"]["id"]
+    sitting = sat(client, bd, profile, email_url="https://mail.google.com/mail/u/0/#inbox/FMfcgzabcd1234")
+    made = client.post("/api/assessments",
+                       json={"profile_id": profile, "interview_id": sitting["id"],
+                             "title": "Take-home \u00b7 RAG pipeline"},
+                       headers=bd)
+    assert made.status_code == 201, made.text
+    assert made.json()["email_url"] == "https://mail.google.com/mail/u/0/#inbox/FMfcgzabcd1234"
+
+    # ...unless the client sent it from somewhere else.
+    other = client.post("/api/assessments",
+                        json={"profile_id": profile, "interview_id": sitting["id"],
+                              "title": "Second test", "email_url": "https://outlook.office.com/mail/id/AAQkAGI2threadtwo"},
+                        headers=bd)
+    assert other.json()["email_url"] == "https://outlook.office.com/mail/id/AAQkAGI2threadtwo"
+
+
+def test_the_developer_may_add_the_thread_too(client, bd, dev, applied):
+    """Both halves of the row have always been writable by whoever has the
+    thing in front of them. A client that emailed the developer directly is
+    exactly the case this exists for."""
+    made = sat(client, bd, applied["profile"]["id"])
+    saved = client.patch(f"/api/interviews/{made['id']}",
+                         json={"email_url": "https://outlook.office.com/mail/id/AAQkAGI2threadtwo"}, headers=dev)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["email_url"] == "https://outlook.office.com/mail/id/AAQkAGI2threadtwo"
+
+
 def test_booking_the_next_round_carries_the_conversation_across(client, bd, applied):
     """The gap this closes loses work.
 

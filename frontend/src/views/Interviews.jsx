@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { api, download } from "../api.js";
 import { useToast } from "./shell.jsx";
 import {
-  Funnel, InterviewRows, JobPicker, Loading, STAGE_LABELS, StageLadder, Stalled, WaitingOnTime,
+  Flow, InterviewRows, JobPicker, Loading, Rounds, STAGE_LABELS, StageLadder, Stalled,
+  WaitingOnTime,
 } from "./widgets.jsx";
 
 /** Scheduling, and the list of what is scheduled.
@@ -36,6 +37,10 @@ const BLANK = {
   mode: "video",
   duration_minutes: 30,
   link: "",
+  // The client's own email thread. Optional, and deliberately not the same
+  // field as the meeting link: one is where to be at two o'clock, the other is
+  // what they actually asked for.
+  email_url: "",
   notes: "",
   stage: "screening",
   // The posting they replied about, when there is one. `job` is the whole row
@@ -382,6 +387,18 @@ export default function Interviews({
                      onChange={(e) => setForm({ ...form, link: e.target.value })} />
             </div>
             <div style={{ gridColumn: "span 2" }}>
+              <label htmlFor="iv-email">
+                Link to the client&apos;s email <span className="opt">optional</span>
+              </label>
+              <input id="iv-email" style={{ width: "100%", marginTop: 4 }}
+                     placeholder="https://mail.google.com/mail/u/0/#inbox/…"
+                     value={form.email_url}
+                     onChange={(e) => setForm({ ...form, email_url: e.target.value })} />
+              <p className="hint" style={{ marginTop: 4, maxWidth: 640 }}>
+                Optional. Paste the client&apos;s email straight out of your inbox — in Gmail or Outlook, open the message and copy the address bar. Three weeks later it is the only place their actual words still exist.
+              </p>
+            </div>
+            <div style={{ gridColumn: "span 2" }}>
               <label htmlFor="iv-notes">Anything they should know</label>
               <input id="iv-notes" style={{ width: "100%", marginTop: 4 }}
                      placeholder="Wants to see the RAG project" value={form.notes}
@@ -441,9 +458,13 @@ export default function Interviews({
 
       {showFunnel && (
         <>
-          <Funnel data={data.funnel} awaiting={data.counts.awaiting_outcome}
-                  note="Applications are all-time. Interviews are never filtered to a cycle — a reply
-                        that arrives three weeks late belongs to the work that earned it." />
+          <Flow funnel={data.funnel} awaiting={data.counts.awaiting_outcome} />
+          <p className="hint" style={{ maxWidth: 700 }}>
+            Applications are all-time. Interviews are never counted against one round
+            of work — a reply that lands three weeks late belongs to the applications
+            that earned it, not to whichever round happened to be open.
+          </p>
+          <Rounds rounds={data.funnel.rounds} />
           <StageLadder rows={data.funnel.by_stage} />
         </>
       )}

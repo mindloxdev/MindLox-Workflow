@@ -98,6 +98,13 @@ LATER_COLUMNS = {
         ("reported_at", "TIMESTAMP"),
         ("stage", "VARCHAR(16) DEFAULT 'screening'"),
         ("previous_id", "INTEGER"),
+        # v2.7 — the client's own email thread, kept beside the meeting link
+        # rather than inside it. Empty on everything already booked, which is
+        # the truth: nobody was asked for it at the time.
+        ("email_url", "TEXT DEFAULT ''"),
+    ],
+    "assessments": [
+        ("email_url", "TEXT DEFAULT ''"),
     ],
     # v2.4 — where the posting is written out, when that is not the apply link.
     # Empty on every job already recorded, which is the truth: nobody was asked
