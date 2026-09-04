@@ -53,8 +53,10 @@ export default function PersonDashboard({
     <div className="stack">
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
-          <h1>{viewingAs ? `${viewingAs}'s dashboard` : "Your dashboard"}</h1>
-          <p className="muted" style={{ marginTop: 3 }}>
+          {/* A manager arrives here from a page that has already named them
+              in a heading, so a second one directly under it is furniture. */}
+          {!viewingAs && <h1>Your dashboard</h1>}
+          <p className="muted" style={{ marginTop: viewingAs ? 0 : 3 }}>
             {batch
               ? <>Round <b>{batch.name}</b> · {batch.status === "open"
                   ? "still running, so these numbers are still moving" : "finished"}

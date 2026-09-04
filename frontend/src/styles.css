@@ -698,6 +698,16 @@ button.pill:hover:not(:disabled) {
   color: var(--faint);
 }
 
+/* Out of somebody's screen and back to the team. A link rather than a button
+   because it undoes a navigation rather than performing an action, and sized
+   to be the first thing found at the top of a page somebody did not mean to
+   be on. */
+.back {
+  align-self: flex-start;
+  font: 500 var(--t-sm)/1 var(--ui);
+  padding: 2px 0;
+}
+
 .truncate { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .detail {

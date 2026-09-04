@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api, safeUrl } from "../api.js";
 import {
   AssessmentBoard, Availability, CyclePicker, DateRange, DayByDay, DeveloperBoard,
@@ -41,17 +41,16 @@ function DeveloperView({ person, batchId, dateRange, onClose }) {
   const { counts, funnel } = data;
 
   return (
-    <section className="card pad stack detail" style={{ gap: 14 }}>
-      <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <h2>{data.developer.name}</h2>
-          <p className="muted" style={{ marginTop: 3 }}>
-            {data.profiles.length
-              ? <>Applied as {data.profiles.map((p) => p.name).join(", ")} · this is their own screen.</>
-              : "Not behind any profile, so they sign in to an empty desk."}
-          </p>
-        </div>
-        <button className="link" onClick={onClose}>Close</button>
+    <div className="stack" style={{ gap: 14 }}>
+      <button className="link back" onClick={onClose}>← Back to the team</button>
+      <div>
+        <h1>{data.developer.name}</h1>
+        <p className="muted" style={{ marginTop: 3 }}>
+          {data.profiles.length
+            ? <>Applied as {data.profiles.map((p) => p.name).join(", ")} · this is their
+                own screen, exactly as they see it.</>
+            : "Not behind any profile, so they sign in to an empty desk."}
+        </p>
       </div>
 
       <Tiles items={[
@@ -137,7 +136,7 @@ function DeveloperView({ person, batchId, dateRange, onClose }) {
           </div>
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -158,17 +157,15 @@ function ProfileDetail({ profileId, batchId, dateRange, onClose }) {
   const { profile, stats } = data;
 
   return (
-    <section className="card pad stack detail" style={{ gap: 14 }}>
-      <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <h2>{profile.name}</h2>
-          <p className="muted" style={{ marginTop: 3 }}>
-            {profile.headline || "—"} · run by {profile.person || "nobody"}
-            {profile.platform ? ` · ${profile.platform}` : ""}
-            {!profile.shared && " · not on the team board"}
-          </p>
-        </div>
-        <button className="link" onClick={onClose}>Close</button>
+    <div className="stack" style={{ gap: 14 }}>
+      <button className="link back" onClick={onClose}>← Back to the team</button>
+      <div>
+        <h1>{profile.name}</h1>
+        <p className="muted" style={{ marginTop: 3 }}>
+          {profile.headline || "—"} · run by {profile.person || "nobody"}
+          {profile.platform ? ` · ${profile.platform}` : ""}
+          {!profile.shared && " · not on the team board"}
+        </p>
       </div>
 
       <Tiles items={[
@@ -256,7 +253,7 @@ function ProfileDetail({ profileId, batchId, dateRange, onClose }) {
           </table>
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -280,13 +277,14 @@ function PersonView({ person, batchId, dateRange, onBatchChange, onDateRangeChan
   const open = person.dashboard_visible;
 
   return (
-    <section className="stack detail card pad" style={{ gap: 14 }}>
+    <div className="stack" style={{ gap: 14 }}>
+      <button className="link back" onClick={onClose}>← Back to the team</button>
       <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <h2>Looking at {person.name}&apos;s dashboard</h2>
+          <h1>{person.name}</h1>
           <p className="muted" style={{ marginTop: 3, maxWidth: 620 }}>
             {open
-              ? `${person.name} can open this screen themselves. This is exactly what they see.`
+              ? `This is ${person.name}'s own screen, exactly as they see it.`
               : `${person.name} cannot see this yet. Nothing here is hidden from you — the switch decides whether it is hidden from them.`}
           </p>
         </div>
@@ -295,11 +293,11 @@ function PersonView({ person, batchId, dateRange, onBatchChange, onDateRangeChan
           <label className="row" style={{ gap: 8 }}>
             <input type="checkbox" checked={open} disabled={busy}
                    onChange={(e) => onToggle(person, e.target.checked)} />
-            <b style={{ fontFamily: "var(--display)", color: open ? "var(--pine)" : "var(--slate)" }}>
+            <b style={{ fontFamily: "var(--display)",
+                        color: open ? "var(--ok-text)" : "var(--slate)" }}>
               {open ? `Open to ${person.name}` : "Manager only"}
             </b>
           </label>
-          <button className="link" onClick={onClose}>Close</button>
         </div>
       </div>
 
@@ -309,7 +307,7 @@ function PersonView({ person, batchId, dateRange, onBatchChange, onDateRangeChan
         <PersonDashboard data={data} batchId={batchId} onBatchChange={onBatchChange}
                          viewingAs={person.name} />
       )}
-    </section>
+    </div>
   );
 }
 
@@ -328,6 +326,10 @@ export default function ManagerDashboard({ onOpenBatches }) {
   // one. The round is a click away, and setting dates takes over from both.
   const [when, setWhen] = useState("today");
   const [todayRows, setTodayRows] = useState(null);
+  // Where the team screen was when somebody was opened, so closing them puts
+  // the manager back on the row they pressed rather than at the top of a page
+  // they have to scroll through again.
+  const cameFrom = useRef(0);
 
   const load = useCallback(async (id) => {
     try {
@@ -406,12 +408,65 @@ export default function ManagerDashboard({ onOpenBatches }) {
 
   if (!data) return <Loading lines={5} figures />;
 
+  // Opening somebody replaces this screen with theirs. It used to be appended
+  // underneath, which meant a manager pressed a row and nothing appeared to
+  // happen — the thing they asked for was a screenful further down, past the
+  // table they had just used, and they had to scroll to find out whether the
+  // click had worked at all.
+  //
+  // Nothing is thrown away: this component stays mounted, so the round, the
+  // dates and the Today/This round switch are all exactly as they left them
+  // when they come back.
+  if (openDev) {
+    return (
+      <DeveloperView person={openDev} batchId={batchId || data.batch?.id}
+                     dateRange={dateRange}
+                     onClose={() => closeDetail(() => setOpenDev(null))} />
+    );
+  }
+  if (openProfile) {
+    return (
+      <ProfileDetail profileId={openProfile} batchId={batchId || data.batch?.id}
+                     dateRange={dateRange}
+                     onClose={() => closeDetail(() => setOpenProfile(null))} />
+    );
+  }
+  if (openPerson) {
+    return (
+      <PersonView
+        person={data.people.find((p) => p.user_id === openPerson.user_id) || openPerson}
+        batchId={batchId || data.batch?.id}
+        dateRange={dateRange}
+        onBatchChange={setBatchId}
+        onDateRangeChange={setDateRange}
+        onToggle={togglePerson}
+        busy={saving}
+        onClose={() => closeDetail(() => setOpenPerson(null))} />
+    );
+  }
+
   const { org, batch, people, profiles, missing, settings } = data;
   const diary = data.interviews;
   const boardOpen = !!settings?.team_board_visible;
   const closedCount = people.filter((p) => p.role !== "admin" && !p.dashboard_visible).length;
 
-  const openTheirScreen = (person) => { setOpenPerson(person); setOpenProfile(null); };
+  // Every route into somebody's screen goes through here, so there is one
+  // place that remembers where to come back to and one that scrolls to the top
+  // of what just opened — a new page that starts halfway down reads as broken.
+  const openDetail = (apply) => {
+    cameFrom.current = window.scrollY;
+    apply();
+    window.scrollTo({ top: 0 });
+  };
+  const closeDetail = (apply) => {
+    apply();
+    window.scrollTo({ top: cameFrom.current });
+  };
+  const openTheirScreen = (person) => openDetail(() => {
+    setOpenPerson(person);
+    setOpenProfile(null);
+    setOpenDev(null);
+  });
 
   // Dates typed into the box beat the switch: somebody who has just asked for
   // 1–15 September did not mean "today", and leaving the switch in charge
@@ -518,24 +573,6 @@ export default function ManagerDashboard({ onOpenBatches }) {
           : <Loading lines={3} />}
       </section>
 
-      {openPerson && (
-        <PersonView
-          person={people.find((p) => p.user_id === openPerson.user_id) || openPerson}
-          batchId={batchId || batch?.id}
-          dateRange={dateRange}
-          onBatchChange={setBatchId}
-          onDateRangeChange={setDateRange}
-          onToggle={togglePerson}
-          busy={saving}
-          onClose={() => setOpenPerson(null)} />
-      )}
-
-      {openProfile && (
-        <ProfileDetail profileId={openProfile} batchId={batchId || batch?.id}
-                       dateRange={dateRange}
-                       onClose={() => setOpenProfile(null)} />
-      )}
-
       <section className="stack" style={{ gap: 10 }}>
         <div>
           <h2>Jobs found, day by day</h2>
@@ -607,18 +644,12 @@ export default function ManagerDashboard({ onOpenBatches }) {
                 {" "}<b>Open</b> shows their screen as they see it.
               </p>
             </div>
-            <DeveloperBoard rows={data.developers || []} onOpen={(row) => {
+            <DeveloperBoard rows={data.developers || []} onOpen={(row) => openDetail(() => {
               setOpenDev(row);
               setOpenPerson(null);
               setOpenProfile(null);
-            }} />
+            })} />
           </section>
-
-          {openDev && (
-            <DeveloperView person={openDev} batchId={batchId || batch?.id}
-                           dateRange={dateRange}
-                           onClose={() => setOpenDev(null)} />
-          )}
 
           <section className="stack" style={{ gap: 10 }}>
             <div>
@@ -628,7 +659,8 @@ export default function ManagerDashboard({ onOpenBatches }) {
                 best first. Click a row to open it.
               </p>
             </div>
-            <TeamBoard rows={profiles} onOpen={setOpenProfile} />
+            <TeamBoard rows={profiles}
+                       onOpen={(id) => openDetail(() => setOpenProfile(id))} />
           </section>
 
           <section className="card pad stack" style={{ gap: 12 }}>
