@@ -37,6 +37,20 @@ export function Loading({ lines = 3, figures = false }) {
  * the Z goes on here or the browser reads them as local time and everything
  * looks hours old.
  */
+/** Today, on the clock the team actually works to.
+ *
+ * Not the browser's. A manager in Karachi opening this at nine in the morning
+ * is looking at a day that has not started in New York, and a screen that
+ * quietly used their own clock would show them an empty team.
+ */
+export function workingToday() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const at = (type) => parts.find((p) => p.type === type)?.value || "";
+  return `${at("year")}-${at("month")}-${at("day")}`;
+}
+
 export function sinceText(iso) {
   if (!iso) return "never";
   const then = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
@@ -151,10 +165,12 @@ export function RangeReport({ report, show = "all", whose = "your" }) {
             { label: "applications sent", value: applied.total },
             { label: "a day, on average", value: applied.per_day,
               foot: `${applied.active_days} day${applied.active_days === 1 ? "" : "s"} worked` },
-            { label: `${whose === "your" ? "you" : whose} found`, value: applied.own_found,
-              hint: "Postings off this profile's own sheet." },
-            { label: "found by colleagues", value: applied.from_others,
-              hint: "Postings the cycle handed over, then marked applied." },
+            { label: "own jobs", value: applied.own_found,
+              foot: whose === "your" ? "you found these" : `${whose} found these`,
+              hint: "Postings off this profile's own sheet, applied for." },
+            { label: "others' jobs", value: applied.from_others,
+              foot: "a colleague found these",
+              hint: "Postings a colleague found and handed over, then applied for." },
             { label: "skipped", value: applied.skipped },
             applied.busiest ? {
               label: "busiest day", value: applied.busiest.count,
@@ -166,18 +182,17 @@ export function RangeReport({ report, show = "all", whose = "your" }) {
               a bar is the ratio, which is the thing being asked about. */}
           {applied.total > 0 && (
             <div>
-              <div className="bar" title={`${applied.own_found} found here · `
-                + `${applied.from_others} from colleagues`}>
+              <div className="bar" title={`${applied.own_found} own jobs · `
+                + `${applied.from_others} others' jobs`}>
                 <i style={{ width: `${(applied.own_found / applied.total) * 100}%`,
                             background: "var(--a)" }} />
                 <i style={{ width: `${(applied.from_others / applied.total) * 100}%`,
                             background: "var(--ok)" }} />
               </div>
               <p className="hint" style={{ marginTop: 5 }}>
-                {Math.round((applied.own_found / applied.total) * 100)}% off
-                {" "}{whose === "your" ? "your" : `${whose}'s`} own search,
-                {" "}{100 - Math.round((applied.own_found / applied.total) * 100)}% off
-                {" "}colleagues&apos;.
+                {Math.round((applied.own_found / applied.total) * 100)}% own jobs,
+                {" "}{100 - Math.round((applied.own_found / applied.total) * 100)}%
+                {" "}others&apos; jobs.
               </p>
             </div>
           )}
@@ -281,6 +296,25 @@ export function Empty({ title, children, action }) {
 }
 
 /** A row of headline numbers. `tone` tints the figure, not the label. */
+/* ── The words this product uses ──────────────────────────────────────────
+ *
+ * One name per thing, on every screen, whoever is looking. A manager, a BD and
+ * a developer reading the same number must read the same word for it, or they
+ * are not discussing the same number.
+ *
+ *   Own jobs          jobs somebody went out and found on their own sheet,
+ *                     and applied for.  (own_found / logged)
+ *   Others' jobs      jobs a colleague found, handed over, and this profile
+ *                     then applied for.  (from_others / applied)
+ *   Applications sent own jobs + others' jobs. The week's work, whole.
+ *   Applied           marked as gone out.
+ *   Skipped           turned down, with a reason.
+ *   Still to do       handed over and not yet answered either way.
+ *   Found twice       a posting two profiles both went out and found.
+ *
+ * Nothing on a screen is named after the column it is stored in.
+ */
+
 const _nf = new Intl.NumberFormat("en-US");
 const num = (value) => _nf.format(value || 0);
 const plural = (n, one, many) => (n === 1 ? one : many);
@@ -575,14 +609,18 @@ export function TeamBoard({ rows, onOpen, highlight = [] }) {
             <th style={{ width: 34 }}>#</th>
             <th>Profile</th>
             <th>Run by</th>
-            <th className="num">Logged</th>
-            <th className="num" title="Jobs this profile logged that a colleague had already found">
-              Also found
+            <th className="num" title="Jobs this profile found on its own sheet and applied for">
+              Own jobs
             </th>
-            <th className="num">List</th>
-            <th className="num">Applied</th>
+            <th className="num" title="Of those, ones a colleague had already found">
+              Found twice
+            </th>
+            <th className="num" title="Jobs a colleague found and handed to this profile">
+              Others&apos; jobs given
+            </th>
+            <th className="num" title="Of those, the ones actually applied for">Applied</th>
             <th style={{ width: 150 }}>Worked through</th>
-            <th>Last logged</th>
+            <th>Last worked</th>
           </tr>
         </thead>
         <tbody>
@@ -633,18 +671,30 @@ export function ProfileCard({ row, children, onOpen }) {
         {onOpen && <button className="ghost" onClick={onOpen}>Open</button>}
       </div>
 
+      {/* "logged", "on the list", "left to do" were three different words for
+          things the rest of the app already had names for, on the one card a
+          BD reads about their own profile. Same four words as everywhere
+          else now, and each says what it counts. */}
       <div className="figures">
-        <div><b className="mono">{row.logged}</b><span>logged</span></div>
-        <div><b className="mono">{row.assigned}</b><span>on the list</span></div>
-        <div><b className="mono">{row.applied}</b><span>applied</span></div>
-        <div><b className="mono" style={{ color: left ? "var(--brick)" : "var(--pine)" }}>{left}</b>
-             <span>left to do</span></div>
+        <div title="Found on this profile's own sheet, and applied for">
+          <b className="mono">{row.logged}</b><span>own jobs</span>
+        </div>
+        <div title="Found by a colleague and handed to this profile">
+          <b className="mono">{row.assigned}</b><span>others&apos; jobs given</span>
+        </div>
+        <div title="Of those, the ones actually applied for">
+          <b className="mono">{row.applied}</b><span>applied</span>
+        </div>
+        <div title="Handed over and not yet answered either way">
+          <b className="mono" style={{ color: left ? "var(--brick)" : "var(--pine)" }}>{left}</b>
+          <span>still to do</span>
+        </div>
       </div>
 
       <Progress applied={row.applied} skipped={row.skipped} pending={row.pending} />
       <div className="row muted" style={{ justifyContent: "space-between", fontSize: 12 }}>
-        <span>{row.done_pct}% worked through</span>
-        <span>{row.all_time} applications all time</span>
+        <span>{row.done_pct}% of others&apos; jobs done</span>
+        <span>{row.all_time} applications sent, all time</span>
       </div>
       {/* A card about how much this identity applied for is half the story if
           it says nothing about the test it owes a client. Only drawn when

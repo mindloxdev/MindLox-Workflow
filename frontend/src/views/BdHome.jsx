@@ -45,6 +45,10 @@ export default function BdHome({ pane = null, onPaneSeen }) {
   // so it is the one status change that asks a question first.
   const [skipping, setSkipping] = useState(null);   // { id, title, company }
   const [skipReason, setSkipReason] = useState("");
+  // Turn it down for every profile this person runs. Off each time on purpose:
+  // it is a decision about this job, not a setting, and a sticky checkbox
+  // would quietly retire postings from a market nobody meant to close.
+  const [skipEverywhere, setSkipEverywhere] = useState(false);
   const fileInput = useRef(null);
 
   const batch = useMemo(
@@ -156,7 +160,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
     }
   };
 
-  const mark = async (assignmentId, status, reason = "") => {
+  const mark = async (assignmentId, status, reason = "", everyProfile = false) => {
     setSheets((all) => ({
       ...all,
       // Skipping retires the job from this profile for good, so the row leaves
@@ -167,7 +171,13 @@ export default function BdHome({ pane = null, onPaneSeen }) {
         .map((r) => (r.id === assignmentId ? { ...r, status } : r)),
     }));
     try {
-      const saved = await api.setStatus(assignmentId, status, reason);
+      const saved = await api.setStatus(assignmentId, status, reason, everyProfile);
+      if (saved.also_skipped) {
+        setNote({ text: `Turned down here and on ${saved.also_skipped} other `
+                      + `profile${saved.also_skipped === 1 ? "" : "s"} you run. `
+                      + "It will not come back to any of them." });
+        loadSheets();
+      }
       setSheets((all) => ({
         ...all,
         [profileId]: (all[profileId] || []).map((r) => (
@@ -186,6 +196,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
   const chooseStatus = (job, status) => {
     if (status === "skipped") {
       setSkipReason("");
+      setSkipEverywhere(false);
       setSkipping({ id: job.id, title: job.title, company: job.company });
       return;
     }
@@ -196,8 +207,9 @@ export default function BdHome({ pane = null, onPaneSeen }) {
     const reason = skipReason.trim();
     if (!reason) return;
     const target = skipping;
+    const everywhere = skipEverywhere;
     setSkipping(null);
-    await mark(target.id, "skipped", reason);
+    await mark(target.id, "skipped", reason, everywhere);
   };
 
   const headers = upload?.headers || [];
@@ -269,9 +281,28 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) confirmSkip();
                       if (e.key === "Escape") setSkipping(null);
                     }} />
+          {profiles.length > 1 && (
+            <label className="row" style={{ gap: 8, alignItems: "flex-start" }}>
+              <input type="checkbox" checked={skipEverywhere} style={{ marginTop: 3 }}
+                     onChange={(e) => setSkipEverywhere(e.target.checked)} />
+              <span>
+                <b>Turn it down for all {profiles.length} profiles I run</b>
+                <p className="hint" style={{ marginTop: 2, maxWidth: 620 }}>
+                  Leave this off when the job is simply wrong for{" "}
+                  <b>{profile?.name}</b> — it may suit one of your other names.
+                  Tick it when the reason is about the job itself: the rate, on-site
+                  only, a client you are already working. Otherwise the same posting
+                  comes round again under your other name next week.
+                </p>
+              </span>
+            </label>
+          )}
+
           <div className="row" style={{ gap: 10 }}>
             <button onClick={confirmSkip} disabled={!skipReason.trim()}>
-              Skip this job
+              {skipEverywhere && profiles.length > 1
+                ? `Turn it down for all ${profiles.length}`
+                : "Turn it down"}
             </button>
             <button className="ghost" onClick={() => setSkipping(null)}>Keep it on the list</button>
           </div>
@@ -408,17 +439,18 @@ export default function BdHome({ pane = null, onPaneSeen }) {
 
       {batch && (
         <>
-          {/* Named for what is behind them, not for what the database calls
-              it. "Own jobs" and "New jobs" sat side by side meaning "the ones
-              you found" and "the ones found for you", which is a distinction
-              nobody gets from those two words. */}
+          {/* "Own jobs" and "Others' jobs" — the same pair of words used on
+              every other screen in the app. They used to be "Own jobs" and
+              "New jobs", which named one by where it came from and the other
+              by how recent it was, so nothing in the pair told you they were
+              opposites. */}
           <Segment
             label="What you are working on"
             value={tab}
             onChange={setTab}
             items={[
-              { key: "applied", label: "Jobs I found", count: handedIn },
-              { key: "new", label: "To apply for", count: newJobs.length },
+              { key: "applied", label: "Own jobs", count: handedIn },
+              { key: "new", label: "Others' jobs", count: newJobs.length },
               { key: "record", label: "All jobs" },
               { key: "interviews", label: "Interviews",
                 count: diary?.awaiting_time || diary?.today || diary?.scheduled,
@@ -453,11 +485,12 @@ export default function BdHome({ pane = null, onPaneSeen }) {
           {tab === "applied" && (
             <section className="stack" style={{ gap: 10 }}>
               <div>
-                  <h2>Jobs {profile?.name} found</h2>
+                  <h2>Own jobs — what {profile?.name} found</h2>
                 <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
                   The jobs you went out and applied for yourself this round. Handing
                   them in is what stops a colleague spending their morning finding the
-                  same ones — and what puts them on other people&apos;s lists.
+                  same ones — and it is what puts them on other people&apos;s lists as
+                  their <b>others&apos; jobs</b>.
                 </p>
               </div>
 
@@ -574,7 +607,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
             <section className="stack" style={{ gap: 10 }}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>
-                  <h2>New jobs for {profile?.name}{profile?.headline ? ` · ${profile.headline}` : ""}</h2>
+                  <h2>Others&apos; jobs for {profile?.name}{profile?.headline ? ` · ${profile.headline}` : ""}</h2>
                   <p className="muted" style={{ marginTop: 3 }}>
                     {newJobs.length
                       ? `${newJobs.length} jobs ${profile?.name} has never applied to, ${done} moved to All jobs.`
@@ -585,7 +618,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                 </div>
                 {newJobs.length > 0 && (
                   <button className="go" onClick={() =>
-                    download(`/batches/${batchId}/profiles/${profileId}/sheet.xlsx`, "new-jobs.xlsx")
+                    download(`/batches/${batchId}/profiles/${profileId}/sheet.xlsx`, "others-jobs.xlsx")
                       .catch((err) => setNote({ bad: true, text: err.message }))}>
                     Download as Excel
                   </button>
@@ -640,7 +673,18 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                       <tbody>
                         {visible.map((job) => (
                           <tr key={job.id}>
-                            <td className="truncate">{job.title || "—"}</td>
+                            <td className="truncate">
+                              {job.title || "—"}
+                              {/* The answer to "I am sure I rejected this".
+                                  They did — under a different name. */}
+                              {job.turned_down_by?.length > 0 && (
+                                <div style={{ fontSize: 11, color: "var(--warn-text)" }}
+                                     title="A skip is per profile: two profiles are two candidates, and a job wrong for one market can be right for the other.">
+                                  you turned this down under{" "}
+                                  {job.turned_down_by.join(", ")}
+                                </div>
+                              )}
+                            </td>
                             <td>{job.company || "—"}</td>
                             <td>
                               {/* Each name filters the list to that sourcer.

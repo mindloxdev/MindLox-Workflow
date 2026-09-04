@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api, deletedLabel, safeUrl } from "../api.js";
-import { DateRange, Loading, STAGE_LABELS } from "./widgets.jsx";
+import { DateRange, Loading, STAGE_LABELS, workingToday } from "./widgets.jsx";
 import { useToast } from "./shell.jsx";
 
 /** Every job ever applied for, searchable, with an interview one click away.
@@ -68,9 +68,7 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
   useEffect(() => { setPage(0); }, [q, profileId, dateRange]);
 
   const showToday = () => {
-    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York",
-      year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
-    const value = `${parts.find((p) => p.type === "year")?.value}-${parts.find((p) => p.type === "month")?.value}-${parts.find((p) => p.type === "day")?.value}`;
+    const value = workingToday();
     setDateRange({ dateFrom: value, dateTo: value });
   };
 
@@ -206,7 +204,7 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
           <span className="muted">
             {busy ? "Searching…"
               : q ? `${total} match${total === 1 ? "" : "es"}`
-                : `${total} logged`}
+                : `${total} applied for`}
           </span>
         </div>
       </div>
@@ -223,8 +221,8 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
       ) : data.rows.length === 0 ? (
         <div className="card pad muted">
           {q ? `Nothing in the record matches “${q}”. Try the client name on its own — a job `
-             + "logged without a link is only findable by what was typed."
-             : "Nothing logged yet. Jobs appear here once a cycle has been built."}
+             + "added without a link is only findable by what was typed."
+             : "Nothing applied for yet. Jobs appear here once a round has been built."}
         </div>
       ) : (
         <>

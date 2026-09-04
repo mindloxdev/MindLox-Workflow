@@ -272,8 +272,8 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
                 <b style={{ fontFamily: "var(--display)", fontSize: 15 }}>Nothing booked</b>
                 <p className="muted" style={{ marginTop: 2 }}>
                   {totals.assigned || totals.logged
-                    ? "Applications are still going out under your name. A reply turns into a row here the moment somebody logs it."
-                    : "Nothing has gone out under your profiles yet."}
+                    ? "Applications are still going out under your name. A reply turns into a row here the moment somebody records it."
+                    : "Nothing has gone out under your names yet."}
                 </p>
               </div>
             </div>
@@ -388,8 +388,8 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
               </div>
 
               <div className="figures">
-                <div><b className="mono">{row.logged}</b><span>found this round</span></div>
-                <div><b className="mono">{row.applied}</b><span>applied this round</span></div>
+                <div><b className="mono">{row.logged}</b><span>own jobs</span></div>
+                <div><b className="mono">{row.applied}</b><span>others&apos; jobs</span></div>
                 <div><b className="mono">{row.all_time}</b><span>applied ever</span></div>
                 <div><b className="mono">{row.rate || "—"}</b><span>your rate</span></div>
               </div>

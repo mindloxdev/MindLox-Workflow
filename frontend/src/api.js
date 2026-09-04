@@ -209,8 +209,12 @@ export const api = {
   // `reason` is required by the server when the status is "skipped" and
   // ignored otherwise. A skip retires the job from this profile for good, so
   // the manager gets to see why rather than only how many.
-  setStatus: (assignmentId, status, reason = "") =>
-    request(`/assignments/${assignmentId}`, { method: "PATCH", body: { status, reason } }),
+  // `everyProfile` turns it down for every profile this person runs, not only
+  // the one on screen. Off by default: two profiles are two candidates, and a
+  // job wrong for one market is often right for the other.
+  setStatus: (assignmentId, status, reason = "", everyProfile = false) =>
+    request(`/assignments/${assignmentId}`,
+            { method: "PATCH", body: { status, reason, every_profile: everyProfile } }),
 
   // Has this posting been applied to before? Asked as the job link is typed,
   // before the row is saved. Matched on the fingerprint, so the same job pasted

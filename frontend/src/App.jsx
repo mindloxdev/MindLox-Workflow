@@ -43,8 +43,8 @@ const TABS = {
    scroll away. */
 const PANES = {
   bd: [
-    { label: "Jobs I found", view: "work", pane: "applied" },
-    { label: "Jobs to apply for", view: "work", pane: "new" },
+    { label: "Own jobs", view: "work", pane: "applied" },
+    { label: "Others' jobs", view: "work", pane: "new" },
     { label: "All jobs", view: "work", pane: "record" },
     { label: "Interviews", view: "work", pane: "interviews" },
     { label: "Tests from clients", view: "work", pane: "assessments" },

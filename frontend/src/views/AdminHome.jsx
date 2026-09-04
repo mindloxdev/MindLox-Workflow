@@ -257,7 +257,7 @@ export default function AdminHome() {
           {detail.status === "open" && detail.auto_build_minutes > 0 && (
             <div className="notice ok">
               <b>Building itself.</b> The lists rebuild every {detail.auto_build_minutes} minutes
-              while this cycle is open, so whatever your team has logged is already reflected.
+              while this round is open, so whatever your team has added is already counted.
               {detail.last_built_at
                 ? ` Last built ${sinceText(detail.last_built_at)}.`
                 : handedIn < 2
@@ -356,7 +356,7 @@ export default function AdminHome() {
                 <div className="muted" style={{ marginTop: 2 }}>{p.headline || "—"}</div>
                 <div className="mono" style={{ fontSize: 25, fontWeight: 500, marginTop: 6 }}>{p.pending}</div>
                 <div className="muted">
-                  new jobs · {p.assigned} total dispatched{p.person ? ` · ${p.person}` : ""}
+                  others&apos; jobs · {p.assigned} handed over in all{p.person ? ` · ${p.person}` : ""}
                 </div>
               </div>
             ))}

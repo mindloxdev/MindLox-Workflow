@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { api, safeUrl } from "../api.js";
 import {
   AssessmentBoard, Availability, CyclePicker, DateRange, DayByDay, DeveloperBoard,
-  Flow, Funnel, InterviewRows, Loading, RangeReport, Rounds, Skills,
-  StageLadder, Stalled, TeamBoard, Tiles, sinceText,
+  Flow, Funnel, InterviewRows, Loading, RangeReport, Rounds, Segment, Skills,
+  StageLadder, Stalled, TeamBoard, Tiles, sinceText, workingToday,
 } from "./widgets.jsx";
 import { DoubledUp, Headline, NeedsYou, PeopleTable } from "./ManagerSummary.jsx";
 import PersonDashboard from "./PersonDashboard.jsx";
@@ -172,13 +172,16 @@ function ProfileDetail({ profileId, batchId, dateRange, onClose }) {
       </div>
 
       <Tiles items={[
-        { label: "logged this cycle", value: stats.logged },
-        { label: "a colleague also found", value: stats.duplicates,
-          tone: stats.duplicates ? "brick" : undefined },
-        { label: "handed to this profile", value: stats.assigned },
+        { label: "own jobs", value: stats.logged,
+          hint: "Found on this profile's own sheet, and applied for." },
+        { label: "found twice", value: stats.duplicates,
+          tone: stats.duplicates ? "brick" : undefined,
+          hint: "Of those, ones a colleague had already found." },
+        { label: "others' jobs given", value: stats.assigned,
+          hint: "Handed over off a colleague's sheet." },
         { label: "applied", value: stats.applied, tone: "pine" },
         { label: "still to do", value: stats.pending },
-        { label: "applications all time", value: stats.all_time },
+        { label: "applications sent, all time", value: stats.all_time },
       ]} />
 
       <RangeReport report={data.report} whose={profile.name} />
@@ -202,7 +205,8 @@ function ProfileDetail({ profileId, batchId, dateRange, onClose }) {
           <div className="card scroll" style={{ marginTop: 8 }}>
             <table>
               <thead>
-                <tr><th>Cycle</th><th className="num">Logged</th><th className="num">Given</th>
+                <tr><th>Round</th><th className="num">Own jobs</th>
+                    <th className="num">Others&apos; jobs given</th>
                     <th className="num">Applied</th></tr>
               </thead>
               <tbody>
@@ -221,9 +225,9 @@ function ProfileDetail({ profileId, batchId, dateRange, onClose }) {
       )}
 
       <div>
-        <h3>The last {data.recent.length} jobs logged</h3>
+        <h3>The last {data.recent.length} jobs applied for</h3>
         <p className="muted" style={{ margin: "3px 0 8px" }}>
-          Newest first, across every cycle this profile has taken part in.
+          Newest first, across every round this profile has taken part in.
         </p>
         <div className="card scroll">
           <table>
@@ -246,7 +250,7 @@ function ProfileDetail({ profileId, batchId, dateRange, onClose }) {
                 </tr>
               ))}
               {!data.recent.length && (
-                <tr><td colSpan={4} className="muted">Nothing logged yet.</td></tr>
+                <tr><td colSpan={4} className="muted">Nothing applied for yet.</td></tr>
               )}
             </tbody>
           </table>
@@ -318,6 +322,12 @@ export default function ManagerDashboard({ onOpenBatches }) {
   const [openDev, setOpenDev] = useState(null);
   const [note, setNote] = useState(null);
   const [saving, setSaving] = useState(false);
+  // What window the per-person table counts over. Opens on today, because the
+  // question a manager actually walks in with is "has the team started", and
+  // a round-to-date total answers that identically on a busy Monday and a dead
+  // one. The round is a click away, and setting dates takes over from both.
+  const [when, setWhen] = useState("today");
+  const [todayRows, setTodayRows] = useState(null);
 
   const load = useCallback(async (id) => {
     try {
@@ -329,14 +339,27 @@ export default function ManagerDashboard({ onOpenBatches }) {
     }
   }, [dateRange]);
 
-  useEffect(() => { load(batchId); }, [batchId, load]);
+  // Today's slice, fetched alongside the round's. Its own request because the
+  // rest of the screen is deliberately about the whole round — the four
+  // numbers, the drop, the duplication — and narrowing all of that to one
+  // morning would make every one of them read as a bad week.
+  const loadToday = useCallback(async (id) => {
+    try {
+      const day = workingToday();
+      setTodayRows((await api.overview(id, day, day)).people);
+    } catch {
+      setTodayRows(null);
+    }
+  }, []);
+
+  useEffect(() => { load(batchId); loadToday(batchId); }, [batchId, load, loadToday]);
 
   // Cycles rebuild on a timer behind the manager's back, so the screen refreshes
   // itself rather than showing a figure that stopped being true.
   useEffect(() => {
-    const tick = setInterval(() => load(batchId), 30000);
+    const tick = setInterval(() => { load(batchId); loadToday(batchId); }, 30000);
     return () => clearInterval(tick);
-  }, [batchId, load]);
+  }, [batchId, load, loadToday]);
 
   const toggleBoard = async (visible) => {
     setSaving(true);
@@ -359,7 +382,7 @@ export default function ManagerDashboard({ onOpenBatches }) {
     setSaving(true);
     try {
       await api.updateUser(person.user_id, { dashboard_visible: open });
-      await load(batchId);
+      await Promise.all([load(batchId), loadToday(batchId)]);
       setNote({
         text: open
           ? `${person.name} can now see their own dashboard — their figures, their progress, nobody else's.`
@@ -389,6 +412,13 @@ export default function ManagerDashboard({ onOpenBatches }) {
   const closedCount = people.filter((p) => p.role !== "admin" && !p.dashboard_visible).length;
 
   const openTheirScreen = (person) => { setOpenPerson(person); setOpenProfile(null); };
+
+  // Dates typed into the box beat the switch: somebody who has just asked for
+  // 1–15 September did not mean "today", and leaving the switch in charge
+  // would silently ignore what they typed.
+  const datesSet = !!(dateRange.dateFrom || dateRange.dateTo);
+  const showingToday = !datesSet && when === "today";
+  const peopleRows = showingToday ? todayRows : people;
 
   return (
     <div className="stack" style={{ gap: 22 }}>
@@ -458,14 +488,34 @@ export default function ManagerDashboard({ onOpenBatches }) {
       </section>
 
       <section className="stack" style={{ gap: 10 }}>
-        <div>
-          <h2>How each person is doing</h2>
-          <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            One row per person, busiest first, with everything they run added together.
-          </p>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <h2>How each person is doing</h2>
+            <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+              One row per person, busiest first, with everything they run added
+              together.{" "}
+              {datesSet
+                ? <>Counting <b>only the dates you picked</b> above.</>
+                : showingToday
+                  ? <>Counting <b>today so far</b>, on Eastern time — so a row of
+                      zeros at nine in the morning is a team that has not started
+                      yet, not a team that has done nothing.</>
+                  : <>Counting the <b>whole round</b>.</>}
+            </p>
+          </div>
+          {!datesSet && (
+            <Segment
+              label="Counting"
+              value={when}
+              onChange={setWhen}
+              items={[{ key: "today", label: "Today" },
+                      { key: "round", label: "This round" }]} />
+          )}
         </div>
-        <PeopleTable people={people} onOpen={openTheirScreen}
-                     onToggle={togglePerson} busy={saving} />
+        {peopleRows
+          ? <PeopleTable people={peopleRows} onOpen={openTheirScreen}
+                         onToggle={togglePerson} busy={saving} />
+          : <Loading lines={3} />}
       </section>
 
       {openPerson && (

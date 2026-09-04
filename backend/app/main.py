@@ -475,6 +475,12 @@ class StatusIn(BaseModel):
     status: str
     # Required when the status is `skipped`, ignored otherwise. See set_status.
     reason: str = ""
+    # Turn it down for every profile this person runs, not only this one.
+    # Off by default, because two profiles are two candidates and a job wrong
+    # for an Accounts Receivable identity may be exactly right for a Customer
+    # Service one. On when the reason is about the job rather than the fit —
+    # the rate, the location, a client already being worked.
+    every_profile: bool = False
 
 
 class JobPatch(BaseModel):
@@ -1252,11 +1258,30 @@ def build_lists(db: Session, batch: Batch) -> dict:
             .where(Application.job_id.in_(chunk))
         ).all():
             blocked[job_id].add(pid)
-        for job_id, pid in db.execute(
-            select(Assignment.job_id, Assignment.profile_id)
-            .where(Assignment.job_id.in_(chunk), Assignment.status == "skipped")
+
+    # Skips, twice over: the row itself, and the posting behind it.
+    #
+    # Blocking only the row was the bug BDs kept reporting — they turned a job
+    # down and a fortnight later it was back on the list. Nothing had gone
+    # wrong with the skip; the same posting had simply been handed in again on
+    # a different link, usually the apply URL rather than the listing, and a
+    # different link is a different fingerprint and so a different row with no
+    # skip against it.
+    #
+    # Scoped to the profiles taking part, so it is one query rather than one
+    # per job, and reads a few hundred rows on a real workspace.
+    turned_down: dict[int, set[str]] = defaultdict(set)
+    if participants:
+        for job_id, pid, company_key, title in db.execute(
+            select(Assignment.job_id, Assignment.profile_id, Job.company_key, Job.title)
+            .join(Job, Job.id == Assignment.job_id)
+            .where(Assignment.status == "skipped",
+                   Assignment.profile_id.in_(participants))
         ).all():
             blocked[job_id].add(pid)
+            mark = _posting_key(company_key, title)
+            if mark:
+                turned_down[pid].add(mark)
 
     job_rows: dict[int, Job] = {job.id: job for job in seen.values()}
     missing = pool_ids - set(job_rows)
@@ -1265,13 +1290,20 @@ def build_lists(db: Session, batch: Batch) -> dict:
             job_rows[job.id] = job
 
     headline_by_profile = {pid: (profile.headline or "") for pid, profile in all_profiles.items()}
-    pool = [
-        {"job_id": job_id, "company_key": job_rows[job_id].company_key or "",
-         "blocked_for": blocked.get(job_id, set()),
-         "headlines": headline_by_job.get(job_id, set()),
-         "headline_by_profile": headline_by_profile}
-        for job_id in sorted(pool_ids) if job_id in job_rows
-    ]
+    pool = []
+    for job_id in sorted(pool_ids):
+        job = job_rows.get(job_id)
+        if job is None:
+            continue
+        against = set(blocked.get(job_id, ()))
+        # ...and anyone who turned down this same posting under another link.
+        mark = _posting_key(job.company_key, job.title)
+        if mark:
+            against |= {pid for pid, marks in turned_down.items() if mark in marks}
+        pool.append({"job_id": job_id, "company_key": job.company_key or "",
+                     "blocked_for": against,
+                     "headlines": headline_by_job.get(job_id, set()),
+                     "headline_by_profile": headline_by_profile})
 
     place = matching.cover if batch.mode == COVER else matching.partition
     assigned, stats = place(pool, participants, batch.quota, batch.one_per_client)
@@ -1413,6 +1445,31 @@ def _naive_utc(value: Optional[dt.datetime]) -> Optional[dt.datetime]:
     return value.replace(tzinfo=None) if value.tzinfo else value
 
 
+def _posting_key(company: Optional[str], title: Optional[str]) -> str:
+    """One posting, however it happened to be linked.
+
+    The same job reaches this system by several routes: the listing, the apply
+    flow with `/apply` on the end, a board's mirror of a company careers page.
+    Those are different URLs, so they fingerprint differently and become
+    different rows — which is right for counting, and wrong for a skip.
+
+    A BD who turns a job down has read the client and the title and decided it
+    is not for this profile. That judgement is about the posting, not about the
+    row it arrived on, so it has to survive the same job coming back on a
+    different link. This is the key it survives by, and it is deliberately the
+    same pair the L3 fingerprint already uses when there is no URL at all — the
+    product has one definition of "the same job with no link to prove it", and
+    this is it.
+
+    Both halves are required. A title on its own is far too loose: "AI
+    Engineer" at two different clients is two jobs, and blocking on the title
+    alone would quietly bury a whole market after one skip.
+    """
+    client = matching.normalize_text(company or "")
+    role = matching.normalize_text(title or "")
+    return f"{client}|{role}" if client and role else ""
+
+
 def _due_for_build(batch: Batch, now: dt.datetime) -> bool:
     if batch.status != "open" or not batch.auto_build_minutes:
         return False
@@ -1552,7 +1609,7 @@ def report(batch_id: int, db: Session = Depends(get_db), _: User = Depends(admin
 # --------------------------------------------------------------------------- #
 
 def _row_json(a: Assignment, j: Job, source: Optional[dict] = None,
-              applied_on: str = "") -> dict:
+              applied_on: str = "", turned_down_by: Optional[list[str]] = None) -> dict:
     source = source or {}
     return {"id": a.id, "job_id": j.id, "status": a.status, "title": j.title,
             "company": j.company, "platform": j.platform, "url": j.url,
@@ -1570,7 +1627,12 @@ def _row_json(a: Assignment, j: Job, source: Optional[dict] = None,
             # on this list at all — somebody else found it — and a BD reading
             # "found by Faizan" knows whose search to ask about when a whole
             # run of them is wrong for this profile.
-            "found_by": source.get("names") or []}
+            "found_by": source.get("names") or [],
+            # Another name this same person applies under has already turned
+            # this posting down. Said out loud on the row, because the
+            # alternative is a BD seeing a job they remember rejecting and
+            # concluding the skip did not work.
+            "turned_down_by": turned_down_by or []}
 
 
 def _first_seen_stamp(job: Job) -> str:
@@ -1623,6 +1685,43 @@ def _found_by(db: Session, job_ids: Iterable[int],
     return dict(out)
 
 
+def _turned_down_elsewhere(db: Session, profile: Profile,
+                           jobs: Iterable[Job]) -> dict[int, list[str]]:
+    """Which of this person's other profiles have turned each posting down.
+
+    Matched on the posting rather than the row, for the same reason the build
+    blocks on the posting: the same job arrives on several links and would
+    otherwise look like a different job to everything except the person
+    reading it.
+    """
+    rows = list(jobs)
+    if not rows or profile.user_id is None:
+        return {}
+    others = db.scalars(select(Profile).where(
+        Profile.user_id == profile.user_id, Profile.id != profile.id)).all()
+    if not others:
+        return {}
+    by_name = {p.id: p.name for p in others}
+    marked: dict[str, set[str]] = defaultdict(set)
+    for pid, company_key, title in db.execute(
+        select(Assignment.profile_id, Job.company_key, Job.title)
+        .join(Job, Job.id == Assignment.job_id)
+        .where(Assignment.status == "skipped",
+               Assignment.profile_id.in_(list(by_name)))
+    ).all():
+        mark = _posting_key(company_key, title)
+        if mark:
+            marked[mark].add(by_name[pid])
+    if not marked:
+        return {}
+    out: dict[int, list[str]] = {}
+    for job in rows:
+        names = marked.get(_posting_key(job.company_key, job.title))
+        if names:
+            out[job.id] = sorted(names)
+    return out
+
+
 def _assignment_rows(db: Session, batch_id: int, profile_id: int) -> list[dict]:
     """One profile's list for one cycle.
 
@@ -1641,7 +1740,10 @@ def _assignment_rows(db: Session, batch_id: int, profile_id: int) -> list[dict]:
         .order_by(Job.company, Job.title)
     ).all()
     sources = _found_by(db, [j.id for _, j, _ in rows], exclude=profile_id)
-    return [_row_json(a, j, sources.get(j.id), applied_on or "")
+    profile = db.get(Profile, profile_id)
+    elsewhere = _turned_down_elsewhere(db, profile, [j for _, j, _ in rows]) \
+        if profile else {}
+    return [_row_json(a, j, sources.get(j.id), applied_on or "", elsewhere.get(j.id))
             for a, j, applied_on in rows]
 
 
@@ -2117,6 +2219,53 @@ def set_status(assignment_id: int, body: StatusIn, db: Session = Depends(get_db)
     row.status = body.status
     row.status_changed_at = utcnow()
 
+    # A skip against every name this person applies under.
+    #
+    # Per profile is the right default and stays the default: two profiles are
+    # two candidates in two markets, and a posting wrong for one is often right
+    # for the other. But when the reason is about the job rather than the fit —
+    # the rate, on-site only, a client already being worked — a BD was turning
+    # the same posting down once per profile, week after week, and reasonably
+    # read that as the skip not working.
+    #
+    # Written as real rows rather than a flag, so every rule that already reads
+    # a skip — what the next build may not hand out, what the manager's report
+    # counts as turned down — sees this one without being taught about it.
+    also_skipped = 0
+    if body.status == "skipped" and body.every_profile:
+        # In the round, not merely on the payroll: a profile that handed
+        # nothing in this week, or already holds this job, is one this
+        # decision can honestly speak for. One that has been dormant for a
+        # month was never offered the posting and must not be recorded as
+        # having turned it down.
+        taking_part = set(db.scalars(select(Upload.profile_id).where(
+            Upload.batch_id == row.batch_id)).all())
+        taking_part |= set(db.scalars(select(Assignment.profile_id).where(
+            Assignment.batch_id == row.batch_id)).all())
+        theirs = [p for p in db.scalars(select(Profile).where(
+            Profile.user_id == user.id, Profile.is_active == True,   # noqa: E712
+            Profile.id != row.profile_id))
+            if p.id in taking_part]
+        seen = {a.profile_id: a for a in db.scalars(select(Assignment).where(
+            Assignment.job_id == row.job_id, Assignment.batch_id == row.batch_id,
+            Assignment.profile_id.in_([p.id for p in theirs])))} if theirs else {}
+        for profile in theirs:
+            mate = seen.get(profile.id)
+            if mate is None:
+                db.add(Assignment(batch_id=row.batch_id, job_id=row.job_id,
+                                  profile_id=profile.id, user_id=profile.user_id,
+                                  status="skipped", skip_reason=reason[:1000],
+                                  exclusive=row.exclusive,
+                                  status_changed_at=utcnow()))
+                also_skipped += 1
+            elif mate.status == "pending":
+                # Never over an `applied`: that profile has already used the
+                # posting, and rewriting it as turned down would erase the work.
+                mate.status = "skipped"
+                mate.skip_reason = reason[:1000]
+                mate.status_changed_at = utcnow()
+                also_skipped += 1
+
     # Marking it applied closes the loop: it counts as this profile's history
     # from now on, so no later cycle offers it again.
     if body.status == "applied":
@@ -2132,6 +2281,7 @@ def set_status(assignment_id: int, body: StatusIn, db: Session = Depends(get_db)
         Application.profile_id == row.profile_id))
     return {"ok": True, "status": row.status,
             "skip_reason": row.skip_reason or "",
+            "also_skipped": also_skipped,
             "applied_on": application.applied_on if application else ""}
 
 

@@ -166,7 +166,7 @@ export function Headline({ org, funnel }) {
       key: "shared",
       scope: "this round",
       value: num(org.from_others),
-      label: "of those, found by a teammate",
+      label: "of those, others' jobs",
       body: sent
         ? `${Math.round((org.from_others / sent) * 100)}% of the round's work came off `
           + "somebody else's sheet. This is the part that would not have happened "
@@ -332,8 +332,12 @@ export function PeopleTable({ people, onOpen, onToggle, busy }) {
                 Sheets in
               </th>
               <th className="num">Applications sent</th>
-              <th className="num">Found it themselves</th>
-              <th className="num">Found by a teammate</th>
+              <th className="num" title="Jobs they went out and found on their own sheet">
+                Own jobs
+              </th>
+              <th className="num" title="Jobs a colleague found and handed to them">
+                Others&apos; jobs
+              </th>
               <th className="num" title="Jobs they found that a colleague had already found">
                 Found twice
               </th>
@@ -402,11 +406,11 @@ export function PeopleTable({ people, onOpen, onToggle, busy }) {
       <ListLegend />
       <p className="hint" style={{ maxWidth: 760 }}>
         Reading a row: <b>applications sent</b> is everything they applied for, and the
-        two columns after it are that same number split — what they went out and{" "}
-        <b>found themselves</b>, plus what a colleague <b>found for them</b> and handed
-        over. <b>Found twice</b> is how much of their own digging somebody else had
-        already done, which is effort spent for nothing. <b>Their list</b> is how far
-        through the handed-over work they have got. Click any row to open that
+        two columns after it are that same number split — <b>own jobs</b> are the ones
+        they went out and found, <b>others&apos; jobs</b> are the ones a colleague found
+        and handed over. <b>Found twice</b> is how much of their own digging somebody
+        else had already done, which is effort spent for nothing. <b>Their list</b> is
+        how far through the handed-over work they have got. Click any row to open that
         person&apos;s own screen.
       </p>
       {idle.length > 0 && (

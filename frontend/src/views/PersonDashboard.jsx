@@ -32,7 +32,7 @@ export default function PersonDashboard({
   const rangeActive = !!(dateRange?.dateFrom || dateRange?.dateTo);
 
   // Every label that names an owner, in one place. `whose` reads as "your" or
-  // "Ali's"; `did` as "you logged" or "Ali logged".
+  // "Ali's"; `did` as "you found" or "Ali found".
   const whose = viewingAs ? `${viewingAs}'s` : "your";
   const did = (verb) => (viewingAs ? `${viewingAs} ${verb}` : `you ${verb}`);
 
@@ -90,7 +90,7 @@ export default function PersonDashboard({
             <b style={{ fontFamily: "var(--display)", fontSize: 15 }}>
               {left === 0
                 ? `${viewingAs ? `${viewingAs}'s` : "Your"} list is clear`
-                : `job${left === 1 ? "" : "s"} still waiting on ${whose} list`}
+                : `others' job${left === 1 ? "" : "s"} still waiting on ${whose} list`}
             </b>
             <p className="muted" style={{ marginTop: 2 }}>
               {left === 0
@@ -116,7 +116,7 @@ export default function PersonDashboard({
               + "it was found here or handed over by a colleague.",
           tone: "good" },
         { key: "shared", scope: "this round", value: totals.from_others,
-          label: "of those, found by a colleague",
+          label: "of those, others' jobs",
           body: "Work that came off somebody else's sheet. This is the part that "
               + "would not have happened without everybody handing in to one place." },
         { key: "wasted", scope: "this round", value: totals.duplicates,
@@ -133,12 +133,13 @@ export default function PersonDashboard({
       ]} />
 
       <Tiles items={[
-        { label: `handed to ${viewingAs || "you"} this round`, value: totals.assigned },
+        { label: `others' jobs given to ${viewingAs || "you"}`, value: totals.assigned,
+          hint: "Found by a colleague and handed over this round." },
         { label: "turned down, with a reason", value: totals.skipped },
         { label: "of that list worked through", value: `${totals.done_pct}%` },
-        { label: `day${data.streak === 1 ? "" : "s"} in a row with work logged`,
+        { label: `day${data.streak === 1 ? "" : "s"} in a row with jobs added`,
           value: data.streak,
-          hint: "Working days in a row with at least one job logged. Today does not "
+          hint: "Working days in a row with at least one job added. Today does not "
               + "break it until tomorrow." },
         diary && !rangeActive && { label: "interviews today", value: diary.counts.today,
           tone: diary.counts.today ? "petrol" : undefined,
@@ -226,7 +227,7 @@ export default function PersonDashboard({
         <DayByDay series={data.activity} />
         <div className="card scroll" style={{ marginTop: 8 }}>
           <table>
-            <thead><tr><th>Day</th><th className="num">Jobs logged</th></tr></thead>
+            <thead><tr><th>Day</th><th className="num">Own jobs found</th></tr></thead>
             <tbody>
               {data.activity.map((day) => (
                 <tr key={day.day}>
@@ -235,7 +236,7 @@ export default function PersonDashboard({
                 </tr>
               ))}
               {!data.activity.length && (
-                <tr><td colSpan={2} className="muted">No jobs logged in this range.</td></tr>
+                <tr><td colSpan={2} className="muted">No jobs found in this range.</td></tr>
               )}
             </tbody>
           </table>
@@ -244,30 +245,40 @@ export default function PersonDashboard({
 
       {totals.duplicates > 0 && (
         <div className="notice">
-          <b>{totals.duplicates} of {totals.logged} jobs {did("logged")}</b> were already on a
+          <b>{totals.duplicates} of {totals.logged} own jobs {did("found")}</b> were already on a
           colleague's sheet — the two searches are covering the same ground.
         </div>
       )}
 
-      <section className="stack" style={{ gap: 10 }}>
-        <div>
-          <h2>{viewingAs ? `Profiles ${viewingAs} runs` : "Your profiles"}</h2>
-          <p className="hint" style={{ marginTop: 3 }}>
-            Each keeps its own history.
+      {/* Everything above is the person; this is the same person split by the
+          name they applied under. Folded, because most mornings the total is
+          the answer and a row of cards between the figures and the diary is
+          just distance. */}
+      <details className="more">
+        <summary>
+          {viewingAs ? `Break it down by profile — ${viewingAs} runs ${profiles.length}`
+                     : `Break it down by profile — you run ${profiles.length}`}
+        </summary>
+        <section className="stack" style={{ gap: 10 }}>
+          <p className="hint" style={{ maxWidth: 660 }}>
+            Each is a separate candidate to a client, with its own developer, resume
+            and history — so the same four words mean the same things here as they do
+            on the totals above.
           </p>
-        </div>
-        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))" }}>
-          {profiles.map((row) => (
-            <ProfileCard key={row.profile_id} row={row}>
-              {row.duplicates > 0 && (
-                <div className="muted" style={{ fontSize: 12 }}>
-                  {row.duplicates} of {row.name}'s logged jobs were also found by another profile.
-                </div>
-              )}
-            </ProfileCard>
-          ))}
-        </div>
-      </section>
+          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))" }}>
+            {profiles.map((row) => (
+              <ProfileCard key={row.profile_id} row={row}>
+                {row.duplicates > 0 && (
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    {row.duplicates} of {row.name}&apos;s own jobs were also found by
+                    another profile.
+                  </div>
+                )}
+              </ProfileCard>
+            ))}
+          </div>
+        </section>
+      </details>
 
       {/* Only on your own dashboard. A manager comparing people has a better
           screen for it than one person's view of the board. */}
@@ -297,7 +308,7 @@ export default function PersonDashboard({
             <>
               <TeamBoard rows={board.rows} highlight={mine} />
               <p className="muted">
-                Your own rows are marked. <b>Also found</b> counts postings two profiles both
+                Your own rows are marked. <b>Found twice</b> counts postings two profiles both
                 logged — the number this whole tool exists to bring down.
                 {board.hidden > 0 && ` ${board.hidden} profile${board.hidden === 1 ? " is" : "s are"} not on the board.`}
               </p>

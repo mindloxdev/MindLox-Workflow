@@ -26,6 +26,12 @@ import itertools
 import pytest
 from fastapi.testclient import TestClient
 
+from app.matching import fingerprint as _fingerprint
+
+
+def matching_fingerprint(url):
+    return _fingerprint(url, "", "")[0]
+
 TEAM = [("pl-boss@pipeline.example.com", "Pipe Boss", "admin"),
         ("pl-bd@pipeline.example.com", "Pia Dee", "bd"),
         ("pl-bd2@pipeline.example.com", "Fay Zann", "bd"),
@@ -661,6 +667,263 @@ def sat(web, headers, profile_id, days=-3, clock="10:00", **extra):
 
 
 # --------------------------------------------------------------------------- #
+# Turning a job down
+# --------------------------------------------------------------------------- #
+
+def linked_sheet(rows):
+    """A sheet of (url, title, company) exactly as given."""
+    out = io.StringIO()
+    out.write("Job Title,Company,Job URL\n")
+    for url, title, company in rows:
+        out.write(f"{title},{company},{url}\n")
+    return out.getvalue().encode()
+
+
+def test_a_skipped_job_does_not_come_back_on_a_different_link(
+        client, admin, bd, other_bd, make_profile):
+    """The bug BDs kept reporting: they turned a job down and a fortnight later
+    it was back on the list.
+
+    Nothing was wrong with the skip. The same posting had been handed in again
+    on a different link \u2014 the apply URL rather than the listing \u2014 and a
+    different link is a different fingerprint, so it arrived as a new row with
+    no skip against it. A skip is a judgement about the posting, not about the
+    row it came in on.
+    """
+    mine = make_profile(bd_email="pl-bd@pipeline.example.com")
+    theirs = make_profile(bd_email="pl-bd2@pipeline.example.com")
+
+    listing = "https://careers.acme-two.example.com/jobs/48213/senior-ai-engineer"
+    apply_url = listing + "/apply?src=board"
+    assert (matching_fingerprint(listing) != matching_fingerprint(apply_url)), (
+        "the premise: these are two rows to the matcher")
+
+    first = cycle(client, admin, f"Skip{next(_serial)}")
+    hand_in(client, first, other_bd, theirs["id"],
+            linked_sheet([(listing, "Senior AI Engineer", "Acme Two"),
+                          ("https://example.com/jobs/1", "Filler", "Padding Co")]))
+    hand_in(client, first, bd, mine["id"], sheet(range(1200, 1206)))
+    client.post(f"/api/batches/{first}/compute", headers=admin)
+
+    jobs = client.get(f"/api/batches/{first}/profiles/{mine['id']}/sheet",
+                      headers=bd).json()["jobs"]
+    target = next(j for j in jobs if j["company"] == "Acme Two")
+    turned = client.patch(f"/api/assignments/{target['id']}",
+                          json={"status": "skipped",
+                                "reason": "Wrong seniority for this profile."},
+                          headers=bd)
+    assert turned.status_code == 200, turned.text
+
+    # A new round, and the colleague hands the same posting in from the apply
+    # flow this time \u2014 which is what somebody who actually applied would paste.
+    second = cycle(client, admin, f"Skip{next(_serial)}")
+    hand_in(client, second, other_bd, theirs["id"],
+            linked_sheet([(apply_url, "Senior AI Engineer", "Acme Two"),
+                          ("https://example.com/jobs/1", "Filler", "Padding Co")]))
+    hand_in(client, second, bd, mine["id"], sheet(range(1200, 1206)))
+    client.post(f"/api/batches/{second}/compute", headers=admin)
+
+    after = client.get(f"/api/batches/{second}/profiles/{mine['id']}/sheet",
+                       headers=bd).json()["jobs"]
+    assert not [j for j in after if j["company"] == "Acme Two"], (
+        "the posting they turned down came back under its apply link")
+
+
+def test_turning_one_job_down_does_not_bury_the_whole_client(
+        client, admin, bd, other_bd, make_profile):
+    """Both halves of the key are required. A different role at the same client
+    is a different job, and one skip must not take the client with it."""
+    mine = make_profile(bd_email="pl-bd@pipeline.example.com")
+    theirs = make_profile(bd_email="pl-bd2@pipeline.example.com")
+
+    first = cycle(client, admin, f"Bury{next(_serial)}")
+    hand_in(client, first, other_bd, theirs["id"], linked_sheet([
+        ("https://jobs.corvus.example.com/p/9001", "Data Engineer", "Corvus Systems"),
+        ("https://jobs.corvus.example.com/p/9002", "Platform Engineer", "Corvus Systems"),
+    ]))
+    hand_in(client, first, bd, mine["id"], sheet(range(1210, 1216)))
+    client.post(f"/api/batches/{first}/compute", headers=admin)
+
+    jobs = client.get(f"/api/batches/{first}/profiles/{mine['id']}/sheet",
+                      headers=bd).json()["jobs"]
+    data_role = next(j for j in jobs if j["title"] == "Data Engineer")
+    client.patch(f"/api/assignments/{data_role['id']}",
+                 json={"status": "skipped", "reason": "Not this profile."},
+                 headers=bd)
+
+    second = cycle(client, admin, f"Bury{next(_serial)}")
+    hand_in(client, second, other_bd, theirs["id"], linked_sheet([
+        ("https://jobs.corvus.example.com/p/9001/apply", "Data Engineer", "Corvus Systems"),
+        ("https://jobs.corvus.example.com/p/9002", "Platform Engineer", "Corvus Systems"),
+    ]))
+    hand_in(client, second, bd, mine["id"], sheet(range(1210, 1216)))
+    client.post(f"/api/batches/{second}/compute", headers=admin)
+
+    after = client.get(f"/api/batches/{second}/profiles/{mine['id']}/sheet",
+                       headers=bd).json()["jobs"]
+    titles = {j["title"] for j in after}
+    assert "Data Engineer" not in titles, "the one they turned down"
+    assert "Platform Engineer" in titles, (
+        "a different role at the same client is a different job")
+
+
+def test_one_skip_can_cover_every_profile_a_person_runs(client, admin, bd, other_bd,
+                                                        make_profile):
+    """The complaint behind this: a BD turns a job down and it comes round again
+    the following week under the other name they apply as.
+
+    Nothing is wrong with the skip \u2014 it is per profile, and per profile is
+    right, because two profiles are two candidates in two markets. But when the
+    reason is about the job rather than the fit, turning it down once per
+    profile per week reads as the skip not working. So it can be said once.
+    """
+    one = make_profile(bd_email="pl-bd@pipeline.example.com")
+    two = make_profile(bd_email="pl-bd@pipeline.example.com")
+    theirs = make_profile(bd_email="pl-bd2@pipeline.example.com")
+
+    batch = cycle(client, admin, f"Every{next(_serial)}")
+    hand_in(client, batch, other_bd, theirs["id"], linked_sheet([
+        ("https://jobs.ashcroft.example.com/p/5150", "Billing Coordinator", "Ashcroft Media"),
+        ("https://example.com/jobs/3", "Filler", "Padding Co"),
+    ]))
+    hand_in(client, batch, bd, one["id"], sheet(range(1240, 1246)))
+    hand_in(client, batch, bd, two["id"], sheet(range(1250, 1256), "Ironvale"))
+    client.post(f"/api/batches/{batch}/compute", headers=admin)
+
+    mine = client.get(f"/api/batches/{batch}/profiles/{one['id']}/sheet",
+                      headers=bd).json()["jobs"]
+    target = next(j for j in mine if j["company"] == "Ashcroft Media")
+    done = client.patch(f"/api/assignments/{target['id']}",
+                        json={"status": "skipped", "reason": "Rate is too low.",
+                              "every_profile": True},
+                        headers=bd)
+    assert done.status_code == 200, done.text
+    assert done.json()["also_skipped"] >= 1, "the other profile they run"
+
+    for pid in (one["id"], two["id"]):
+        rows = client.get(f"/api/batches/{batch}/profiles/{pid}/sheet",
+                          headers=bd).json()["jobs"]
+        assert not [j for j in rows if j["company"] == "Ashcroft Media"]
+
+    # ...and it stays gone when the round is built again.
+    client.post(f"/api/batches/{batch}/compute", headers=admin)
+    for pid in (one["id"], two["id"]):
+        rows = client.get(f"/api/batches/{batch}/profiles/{pid}/sheet",
+                          headers=bd).json()["jobs"]
+        assert not [j for j in rows if j["company"] == "Ashcroft Media"]
+
+
+def test_skipping_everywhere_never_overwrites_work_already_done(
+        client, admin, bd, other_bd, make_profile):
+    """The other profile may already have applied for it. That is work, and a
+    tick box on a different screen must not rewrite it as a rejection."""
+    one = make_profile(bd_email="pl-bd@pipeline.example.com")
+    two = make_profile(bd_email="pl-bd@pipeline.example.com")
+    theirs = make_profile(bd_email="pl-bd2@pipeline.example.com")
+
+    batch = cycle(client, admin, f"Guard{next(_serial)}")
+    hand_in(client, batch, other_bd, theirs["id"], linked_sheet([
+        ("https://jobs.meridian.example.com/p/6100", "Claims Processor", "Meridian Group"),
+        ("https://example.com/jobs/4", "Filler", "Padding Co"),
+    ]))
+    hand_in(client, batch, bd, one["id"], sheet(range(1260, 1266)))
+    hand_in(client, batch, bd, two["id"], sheet(range(1270, 1276), "Ironvale"))
+    client.post(f"/api/batches/{batch}/compute", headers=admin)
+
+    second = client.get(f"/api/batches/{batch}/profiles/{two['id']}/sheet",
+                        headers=bd).json()["jobs"]
+    already = next(j for j in second if j["company"] == "Meridian Group")
+    client.patch(f"/api/assignments/{already['id']}", json={"status": "applied"},
+                 headers=bd)
+
+    first = client.get(f"/api/batches/{batch}/profiles/{one['id']}/sheet",
+                       headers=bd).json()["jobs"]
+    target = next(j for j in first if j["company"] == "Meridian Group")
+    done = client.patch(f"/api/assignments/{target['id']}",
+                        json={"status": "skipped", "reason": "On-site only.",
+                              "every_profile": True},
+                        headers=bd)
+    assert done.status_code == 200, done.text
+
+    # The point is not how many rows moved — this BD has profiles left over
+    # from other tests in this module. It is that the one which had already
+    # applied was left exactly as it was.
+    record = client.get(f"/api/jobs?profile_id={two['id']}", headers=bd).json()
+    assert [r for r in record["rows"] if r["company"] == "Meridian Group"], (
+        "the application the other profile already sent")
+    board = client.get(f"/api/dashboard/profiles/{two['id']}", headers=bd).json()
+    assert board["stats"]["applied"] >= 1, "still counted as work, not as a rejection"
+
+
+def test_a_job_says_when_another_of_your_profiles_turned_it_down(
+        client, admin, bd, other_bd, make_profile):
+    """Without this a BD sees a posting they clearly remember rejecting and
+    concludes the skip is broken. It is not \u2014 it was a different candidate."""
+    one = make_profile(bd_email="pl-bd@pipeline.example.com")
+    two = make_profile(bd_email="pl-bd@pipeline.example.com")
+    theirs = make_profile(bd_email="pl-bd2@pipeline.example.com")
+
+    batch = cycle(client, admin, f"Says{next(_serial)}")
+    hand_in(client, batch, other_bd, theirs["id"], linked_sheet([
+        ("https://jobs.verdant.example.com/p/8200", "Support Associate", "Verdant Labs"),
+        ("https://example.com/jobs/5", "Filler", "Padding Co"),
+    ]))
+    hand_in(client, batch, bd, one["id"], sheet(range(1280, 1286)))
+    hand_in(client, batch, bd, two["id"], sheet(range(1290, 1296), "Ironvale"))
+    client.post(f"/api/batches/{batch}/compute", headers=admin)
+
+    first = client.get(f"/api/batches/{batch}/profiles/{one['id']}/sheet",
+                       headers=bd).json()["jobs"]
+    target = next(j for j in first if j["company"] == "Verdant Labs")
+    client.patch(f"/api/assignments/{target['id']}",
+                 json={"status": "skipped", "reason": "Wrong market for this one."},
+                 headers=bd)
+
+    second = client.get(f"/api/batches/{batch}/profiles/{two['id']}/sheet",
+                        headers=bd).json()["jobs"]
+    still = next(j for j in second if j["company"] == "Verdant Labs")
+    assert still["turned_down_by"] == [one["name"]], (
+        "the row has to say which of their names already rejected it")
+
+
+def test_a_skip_belongs_to_the_profile_not_the_person(client, admin, bd, other_bd,
+                                                      make_profile):
+    """Two profiles are two candidates. One turning a job down says nothing
+    about whether the other should see it."""
+    one = make_profile(bd_email="pl-bd@pipeline.example.com")
+    two = make_profile(bd_email="pl-bd@pipeline.example.com")
+    theirs = make_profile(bd_email="pl-bd2@pipeline.example.com")
+
+    batch = cycle(client, admin, f"Whose{next(_serial)}")
+    hand_in(client, batch, other_bd, theirs["id"], linked_sheet([
+        ("https://jobs.halcyon.example.com/p/7700", "ML Engineer", "Halcyon Data"),
+        ("https://example.com/jobs/2", "Filler", "Padding Co"),
+    ]))
+    hand_in(client, batch, bd, one["id"], sheet(range(1220, 1226)))
+    # The second profile hands in too, so it is unarguably taking part and the
+    # test is about the skip rather than about who was in the round.
+    hand_in(client, batch, bd, two["id"], sheet(range(1230, 1236), "Ironvale"))
+    client.post(f"/api/batches/{batch}/compute", headers=admin)
+
+    first = client.get(f"/api/batches/{batch}/profiles/{one['id']}/sheet",
+                       headers=bd).json()["jobs"]
+    target = next(j for j in first if j["company"] == "Halcyon Data")
+    client.patch(f"/api/assignments/{target['id']}",
+                 json={"status": "skipped", "reason": "Not for this one."},
+                 headers=bd)
+
+    client.post(f"/api/batches/{batch}/compute", headers=admin)
+    mine_again = client.get(f"/api/batches/{batch}/profiles/{one['id']}/sheet",
+                            headers=bd).json()["jobs"]
+    assert not [j for j in mine_again if j["company"] == "Halcyon Data"]
+
+    others = client.get(f"/api/batches/{batch}/profiles/{two['id']}/sheet",
+                        headers=bd).json()["jobs"]
+    assert [j for j in others if j["company"] == "Halcyon Data"], (
+        "the other profile never turned it down")
+
+
+# --------------------------------------------------------------------------- #
 # The client's own email
 # --------------------------------------------------------------------------- #
 
@@ -1219,8 +1482,15 @@ def test_the_report_splits_what_you_found_from_what_you_were_handed(
     sent = report["applied"]
     # The fixture hands in six postings on this profile's own sheet.
     assert sent["own_found"] >= 6
-    # Nothing has been marked applied off the dispatched list yet.
-    assert sent["from_others"] == 0
+
+    # Scoped to the profile the split is about. `/dashboard/me` covers every
+    # profile this BD runs, so an absolute zero there is a claim about whatever
+    # else happened to run first in this module rather than about this split.
+    stats = client.get(f"/api/dashboard/profiles/{profile}?batch_id={applied['batch']}",
+                       headers=bd).json()["stats"]
+    assert stats["own_found"] >= 6
+    assert stats["from_others"] == 0, (
+        "nothing off this profile's dispatched list has been marked applied")
     assert sent["total"] == sent["own_found"] + sent["from_others"]
 
     # Now work one job off the list somebody else found.
@@ -1234,11 +1504,23 @@ def test_the_report_splits_what_you_found_from_what_you_were_handed(
     after = client.get(
         f"/api/dashboard/me?date_from={days_ago(30)}&date_to={today_iso()}",
         headers=bd).json()["report"]["applied"]
-    assert after["from_others"] == 1
+    # One more than before, measured rather than assumed — the person-wide
+    # report covers every profile this BD runs.
+    assert after["from_others"] == sent["from_others"] + 1
     assert after["total"] == after["own_found"] + after["from_others"]
 
 
 def test_the_report_counts_what_was_turned_down(client, bd, applied):
+    """Measured as the change, not as an absolute.
+
+    The report covers every profile this BD runs, so an exact total is a
+    statement about whatever else happened to run first in the module. One skip
+    should move it by exactly one, and that is true whatever else is there.
+    """
+    window = f"date_from={days_ago(30)}&date_to={today_iso()}"
+    before = client.get(f"/api/dashboard/me?{window}",
+                        headers=bd).json()["report"]["applied"]["skipped"]
+
     profile = applied["profile"]["id"]
     sheets = client.get(f"/api/batches/{applied['batch']}/my-sheets",
                         headers=bd).json()["profiles"]
@@ -1246,10 +1528,9 @@ def test_the_report_counts_what_was_turned_down(client, bd, applied):
     client.patch(f"/api/assignments/{mine['jobs'][0]['id']}",
                  json={"status": "skipped", "reason": "Wrong seniority."}, headers=bd)
 
-    report = client.get(
-        f"/api/dashboard/me?date_from={days_ago(30)}&date_to={today_iso()}",
-        headers=bd).json()["report"]
-    assert report["applied"]["skipped"] == 1
+    after = client.get(f"/api/dashboard/me?{window}",
+                       headers=bd).json()["report"]["applied"]["skipped"]
+    assert after == before + 1
 
 
 def test_the_report_averages_over_the_window_asked_for(client, bd, applied):
