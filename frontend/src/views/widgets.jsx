@@ -480,6 +480,60 @@ function dayName(iso) {
                                             timeZone: "UTC" });
 }
 
+/** The chevron every collapsible thing on this screen turns.
+ *
+ * An inline SVG rather than a character: a glyph is font-dependent, cannot be
+ * given a stroke width that matches the rest of the interface, and renders
+ * differently on every machine the team uses. Marked `aria-hidden` because the
+ * button around it already announces its state.
+ */
+function Chevron({ open }) {
+  return (
+    <svg className={open ? "chev is-open" : "chev"} viewBox="0 0 16 16"
+         width="14" height="14" aria-hidden="true" focusable="false">
+      <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor"
+            strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** A section that opens when somebody asks for it.
+ *
+ * The manager's screen had grown to nine sections deep, and the answer to
+ * "how is the team doing" was three scrolls below the answer to "what needs
+ * me". Everything that is not needed to answer the second question now starts
+ * closed.
+ *
+ * A real `button` with `aria-expanded` and `aria-controls`, and the panel
+ * carries `hidden` rather than a class that merely hides it — so a closed
+ * section is out of the tab order and out of the accessibility tree, not
+ * silently sitting there for anybody using a screen reader.
+ *
+ * `badge` is what the section is worth opening for. A count on a closed
+ * section is the difference between "there might be something in here" and
+ * "there are two things in here", and it is what stops progressive disclosure
+ * from turning into hidden information.
+ */
+export function Disclosure({ title, hint, badge = null, tone = "",
+                            defaultOpen = false, children }) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  const id = React.useId();
+  return (
+    <section className={open ? "disc is-open" : "disc"}>
+      <button type="button" className="disc-head" aria-expanded={open}
+              aria-controls={id} onClick={() => setOpen((now) => !now)}>
+        <Chevron open={open} />
+        <span className="disc-title">{title}</span>
+        {badge !== null && badge !== undefined && (
+          <span className={`pill ${tone}`.trim()}>{badge}</span>
+        )}
+        {hint && <span className="disc-hint">{hint}</span>}
+      </button>
+      <div className="disc-body" id={id} hidden={!open}>{children}</div>
+    </section>
+  );
+}
+
 /** A few large figures, each with the sentence that says how to read it.
  *
  * The counterpart to `Tiles`, and the one to reach for when there are four
@@ -503,6 +557,30 @@ export function BigFigures({ items }) {
           </b>
           <span className="head-label">{item.label}</span>
           {item.body && <p className="hint" style={{ marginTop: 5 }}>{item.body}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The same figures as `BigFigures`, without the paragraph on each.
+ *
+ * Four numbers with four explanations under them is most of a screen, read
+ * once and scrolled past every morning after. The number, its label and the
+ * window it counts over stay; what it means moves one press away, under the
+ * row rather than inside every card.
+ */
+export function Figures({ items }) {
+  return (
+    <div className="figs">
+      {items.filter(Boolean).map((item) => (
+        <div className="fig" key={item.key || item.label}>
+          {item.scope && <span className="fig-scope">{item.scope}</span>}
+          <b className={item.tone === "good" ? "is-good"
+                      : item.tone === "bad" ? "is-bad" : undefined}>
+            {item.value}
+          </b>
+          <span className="fig-label">{item.label}</span>
         </div>
       ))}
     </div>

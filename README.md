@@ -497,6 +497,19 @@ be handed over twice. Merging those would mean going back to client + title,
 which costs more than it saves. They are counted, at least: both show up under
 **found twice**.
 
+### The same client, spelled two ways
+
+`matching.client_key` is the normalised company name and nothing else — the same
+rule `jobs.company_key` is already built from, so "Northwind Health, Inc." and
+"northwind health" are one client wherever they are read. There is no clients
+table and there is not going to be one: a company is a name somebody typed on a
+sheet, and the moment identity lives in a row somebody has to maintain it.
+
+Deliberately not fuzzy. The fuzzy tier above only ever collapses two rows when
+the client *and* the title are both close; loosening that to the client alone
+would quietly fuse two companies' whole histories, which on a screen a manager
+reads before an account call is the worst thing this could do.
+
 ### Profiles that have not handed anything in
 
 A cycle opens, two profiles report in, and a third selling the same skills has
@@ -629,11 +642,16 @@ learn its vocabulary to read it.
 past a deadline, sheets not handed in, interviews today, conversations that went
 quiet, results nobody recorded.
 
+**One line each.** The title already says what is wrong and how many; *why it
+matters* opens when somebody presses the row. Six of these with a paragraph
+apiece was the screenful that pushed everything else below the fold.
+
 **The four numbers.** Applications sent this round, how many of those came off a
 colleague's sheet, and — all-time, because a reply lands weeks after the
 application that earned it — clients who wanted to talk and offers of work. Nine
 tiles were a wall the eye slid off, and the ones that mattered were in the
-middle of it. Each card says which window it counts over.
+middle of it. Each card says which window it counts over, and what the four
+*mean* is one press underneath rather than a paragraph inside every card.
 
 **What the applications turned into.** Applications, interviews, offers, hires,
 drawn as bars on one shared scale. Four boxes with arrows between them hid the
@@ -648,7 +666,14 @@ With the trend beside it, round by round — the number this whole tool exists t
 bring down, and the only place you can see whether it is going down.
 
 **How each person is doing.** One row per person, everything they run added
-together. It opens on **today**, because the question a manager walks in with is
+together. Five columns, not nine: who, how much went out, how far through their
+handed-over work they are, and when they last did any. The rest — own jobs,
+others' jobs, found twice, sheets in, and the switch that decides whether they
+can see their own figures — opens on that row.
+
+Two targets per row, never one doing two jobs: the **name** opens their screen,
+the **chevron** opens their numbers. A row that did both would navigate away
+from somebody trying to read it. It opens on **today**, because the question a manager walks in with is
 "has the team started", and a round-to-date total answers that identically on a
 busy Monday and a dead one. A **This round** switch sits beside the heading, and
 dates typed into the filter take over from both — somebody who has just asked
@@ -677,14 +702,24 @@ It scrolls to the top on the way in and back to the row you pressed on the way
 out, and the round, the dates and the Today/This round switch are as you left
 them.
 
-**The detail folds away.** Interviews round by round, today's and the coming
-fortnight, conversations that stalled, tests across the workspace, the
-developers, every profile separately, and who may see whose figures — all behind
-one **Show the detail**. A manager who opens this screen once a morning should
-be finished before it, and the things they came for stop being findable if six
-tables sit under them.
+**Everything else starts closed.** What the applications turned into, effort
+spent twice, the day-by-day strip, interviews and tests, the developers, every
+profile separately, and who may see whose figures — each its own section, each
+opening when somebody asks for it. A manager who opens this screen once a
+morning should be finished before any of them, and the things they came for stop
+being findable if six tables sit under them.
 
-Two of those detail sections are worth calling out:
+**A closed section carries the number it is worth opening for** — *1 offer*,
+*48*, *3 developers*. That is the difference between progressive disclosure and
+hidden information: "there are two things in here", not "there might be
+something in here".
+
+Each header is a real button with `aria-expanded` and `aria-controls`, and the
+panel carries `hidden` rather than a class that merely hides it — so a closed
+section is out of the tab order and out of the accessibility tree, not sitting
+there invisible for anybody using a screen reader.
+
+Two of those sections are worth calling out:
 
 - **Conversations that stalled.** Cleared a round, nothing booked after it.
   Read-only from here on purpose: whoever runs that profile books the next
@@ -695,6 +730,71 @@ Two of those detail sections are worth calling out:
   Monday, what is in their diary, and how many tests are sitting on them.
   **Open** is that developer's own screen, and outcomes can be recorded from it
   — the person chasing them is usually the one looking.
+
+### Clients
+
+Every other screen is organised by profile, by person or by round. None of them
+answers the question a manager is actually asked on the phone: **have we been to
+Northwind before, and how did it go.**
+
+Nothing here is a new source of truth. It is the same postings, conversations
+and tests, grouped by the company instead of by the person who typed them, with
+one small table for the manager's own annotations.
+
+**Status is derived, never typed.** A status somebody sets by hand is a status
+somebody forgets to change, and the screen then says a client is live three
+months after they said no. Every rule reads a row somebody already had to write
+for a different reason:
+
+| Status | How it is derived |
+|---|---|
+| Hired | An outcome of hired |
+| Offer | An outcome of offer, no hire |
+| Test out | An open test, whatever the interviews say |
+| Stalled | Cleared a round with nothing booked after |
+| In conversation | Booked or held, not settled either way |
+| Replied, no time agreed | A reply started from the job record, no time on it |
+| Closed | The last recorded outcome is a no |
+| Approached | Applications exist, no reply |
+
+A client sits in exactly one column, the furthest up that ladder — except that
+**Test out** and **Stalled** beat **In conversation**, because those two are
+waiting on somebody here. A client at "in conversation" is fine; a client
+sitting on an unanswered test is not, and filing them together hides the only
+one worth acting on. **Closed** sits *below* the live states rather than above
+them: a client who said no in March and is talking again in September is talking
+again.
+
+A cancelled interview is never a rejection, and an interview nobody has reported
+on is not a loss. Both rules already exist in the funnel and are called rather
+than restated.
+
+**A table by default, a board on a switch.** A board is easier to turn round and
+show somebody; a table is easier to read on a Monday, which is what this screen
+is mostly for.
+
+**Opening a row opens the client**, on its own page, the same way opening a
+person does from the team table. Inside: the conversations as one block per
+chain rather than one row per sitting, the meeting link and *their email* named
+separately, the brief and the debrief side by side; the tests and their
+deadlines; every posting ever applied to there, which is the answer to *have we
+been here before*; and what was found twice, because a run of those at one
+company is a search problem rather than a dispatch problem.
+
+**The annotation is advisory and says so.** A priority flag, an *already being
+worked* flag and a free-text note. None of it filters the pool, skips anything
+or changes what dispatch hands out — a flag that quietly held jobs back would be
+a rule whose effect nobody could see, and the reason for a missing job would be
+invisible on the screen it went missing from. So it is surfaced instead: a BD
+logging a job at a flagged client is told in the dialog they already get as they
+type a link, with the same way past it.
+
+The note is keyed on the derived client key and carries the spelling last seen,
+so it outlives the last posting at that client being withdrawn — which is
+exactly when somebody most wants to read *approached in March, went quiet*.
+
+**Manager only, checked on the server.** The tab being absent for everybody else
+is a courtesy; the `403` is the control.
 
 ### Between two dates
 
@@ -936,6 +1036,7 @@ pytest test_e2e.py -v -s        # full round trip, prints the report
 pytest test_dashboard.py -v     # the figures, and who may see whose
 pytest test_developer.py -v     # the developer side: the clock, the clash, the funnel
 pytest test_pipeline.py -v      # the record, the ladder, assessments, skill joins
+pytest test_crm.py -v           # clients: the key, the derived status, permission
 pytest                          # all of it
 ```
 
@@ -1262,6 +1363,11 @@ repaired on first start from the sheets that named them. Only blanks are
 touched, so a correction made by hand is never overwritten, and running it twice
 does nothing the second time.
 
+Version 2.8 added the client screen. One new table, `client_notes`, which
+`create_all` makes on its own — nothing to migrate and nothing to backfill,
+because the clients themselves are derived from the company names already on
+`jobs` and were never stored.
+
 All of these are restart-only. Back up the file first anyway — it is one `cp`.
 
 ---
@@ -1325,6 +1431,7 @@ backend/
     main.py       FastAPI app, auth, all routes
     models.py     Tables, and the constraints that carry the guarantees
     matching.py   Fingerprints, fuzzy merge, skills overlap, cover and split
+    crm.py        The client account view — read-only, one pass over the lot
     dashboard.py  Progress figures — read-only queries, no writes anywhere
     interviews.py The diary, the ladder and the funnel — read-only too
     assessments.py Take-homes and their deadlines — read-only too
@@ -1338,7 +1445,7 @@ backend/
   seed.py         First accounts, profiles, developers and the sample data
   import_old_sheets.py  The team's pre-app spreadsheets, loaded as history
   test_matching.py, test_e2e.py, test_dashboard.py, test_developer.py,
-  test_pipeline.py     215 tests in all
+  test_pipeline.py, test_crm.py     233 tests in all
 
 frontend/
   src/
@@ -1351,6 +1458,7 @@ frontend/
       PersonDashboard.jsx  One person's progress — the screen itself
       Dashboard.jsx        Fetches it for the person whose it is
       ManagerDashboard.jsx The workspace, each person, and the two switches
+      ManagerCRM.jsx       Clients: the board, the table and one client whole
       ManagerSummary.jsx   The manager's plain-English half: what needs you,
                            the four numbers, effort spent twice, the team table
       BdHome.jsx           Logging jobs and working the list
@@ -1373,7 +1481,7 @@ frontend/
                            families, and every component this app uses
 ```
 
-`dashboard.py` and `interviews.py` never write. A dashboard can be opened while
+`crm.py`, `dashboard.py` and `interviews.py` never write. A dashboard can be opened while
 the timer is halfway through rebuilding a cycle without disturbing it.
 
 Every interview timestamp is stored UTC and converted exactly once, in

@@ -177,7 +177,12 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
         setChecking(false);
       }
     }
-    if (info?.mine || info?.others?.length) setWarning({ index, info, url });
+    // Three reasons to stop somebody, in one dialog rather than three. The
+    // third is advisory — a manager has flagged the client as already being
+    // worked — and like the other two it never blocks the row.
+    if (info?.mine || info?.others?.length || info?.being_worked) {
+      setWarning({ index, info, url });
+    }
   }, [ignored, profileId]);
 
   const addRow = async () => {
@@ -449,6 +454,13 @@ export default function EntryTable({ batchId, profileId, profileName, profileHea
 function DuplicateDialog({ info, profileName, onIgnore, onRemove }) {
   const mine = info?.mine;
   const others = info?.others || [];
+  const worked = info?.being_worked;
+  // What the dialog is mostly about. A duplicate outranks a colleague's
+  // application, which outranks a flag — but the flag is shown either way,
+  // because it is the one a BD has no other way of finding out.
+  const headline = mine ? "Duplicate entry found"
+    : others.length ? "Already on record"
+      : "Somebody is already working this client";
   const keep = useRef(null);
 
   useEffect(() => { keep.current?.focus(); }, []);
@@ -462,13 +474,13 @@ function DuplicateDialog({ info, profileName, onIgnore, onRemove }) {
     <div className="scrim" onKeyDown={onKeyDown}
          onMouseDown={(e) => e.target === e.currentTarget && onIgnore()}>
       <div className="palette" role="alertdialog" aria-modal="true"
-           aria-label={mine ? "Duplicate entry found" : "Already on record"}
+           aria-label={headline}
            style={{ padding: "var(--s5)", gap: 12, maxHeight: "none" }}>
         <div className="stack" style={{ gap: 10 }}>
           <div className="row" style={{ gap: 8, alignItems: "baseline" }}>
             <span aria-hidden="true" style={{ fontSize: 18 }}>{mine ? "\u26A0" : "\u2139"}</span>
             <b style={{ fontFamily: "var(--display)", fontSize: "var(--t-lg)" }}>
-              {mine ? "Duplicate entry found" : "Already on record"}
+              {headline}
             </b>
           </div>
 
@@ -480,7 +492,7 @@ function DuplicateDialog({ info, profileName, onIgnore, onRemove }) {
               {" "}Applying twice under one identity is the same person approaching
               the client a second time.
             </p>
-          ) : (
+          ) : others.length === 0 ? null : (
             <p style={{ margin: 0 }}>
               This posting is already on record, under
               {" "}{others.slice(0, 3).map((o, i) => (
@@ -498,6 +510,19 @@ function DuplicateDialog({ info, profileName, onIgnore, onRemove }) {
           {mine && others.length > 0 && (
             <p className="hint" style={{ margin: 0 }}>
               Also applied for by {others.map((o) => o.profile).join(", ")}.
+            </p>
+          )}
+
+          {/* A manager's flag, and nothing more. It has not held anything back
+              and it will not: the row saves exactly as it would without it. */}
+          {worked && (
+            <p style={{ margin: 0 }}>
+              Your manager has <b>{worked.client}</b> marked as already being
+              worked{worked.by ? <> by <b>{worked.by}</b></> : null}
+              {worked.since ? <> \u00b7 {worked.since}</> : null}.
+              {worked.note ? <> “{worked.note}”</> : null}
+              {" "}Worth a word before you spend the time — nothing here stops you
+              filing the row.
             </p>
           )}
 

@@ -32,6 +32,37 @@ export const LEVELS = {
 
 export const plural = (n, one, many) => (n === 1 ? one : many);
 
+/** One row, one line, until somebody asks why.
+ *
+ * The title already says what is wrong and how many. The paragraph saying why
+ * it matters is what turned six of these into a screenful, so it opens on
+ * request — pressing the row, or its chevron, which is the same target.
+ */
+function Action({ item }) {
+  const [why, setWhy] = React.useState(false);
+  const id = React.useId();
+  return (
+    <div className={`act ${LEVELS[item.level].cls}`}>
+      <button type="button" className="act-line" aria-expanded={why}
+              aria-controls={id} onClick={() => setWhy((now) => !now)}>
+        <svg className={why ? "chev is-open" : "chev"} viewBox="0 0 16 16"
+             width="14" height="14" aria-hidden="true" focusable="false">
+          <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor"
+                strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="act-tag">{LEVELS[item.level].label}</span>
+        <b style={{ flex: 1, minWidth: 0 }}>{item.title}</b>
+      </button>
+      {item.action && (
+        <button className="ghost act-go" onClick={item.action.onClick}>
+          {item.action.label}
+        </button>
+      )}
+      <p className="muted act-why" id={id} hidden={!why}>{item.body}</p>
+    </div>
+  );
+}
+
 export function ActionList({ items, heading = "What needs you", lead = "", empty }) {
   if (!items.length) {
     return empty ? (
@@ -51,20 +82,7 @@ export function ActionList({ items, heading = "What needs you", lead = "", empty
         )}
       </div>
       <div className="acts">
-        {items.map((item) => (
-          <div className={`act ${LEVELS[item.level].cls}`} key={item.key}>
-            <span className="act-tag">{LEVELS[item.level].label}</span>
-            <div className="act-body">
-              <b>{item.title}</b>
-              <p className="muted" style={{ marginTop: 3 }}>{item.body}</p>
-            </div>
-            {item.action && (
-              <button className="ghost act-go" onClick={item.action.onClick}>
-                {item.action.label}
-              </button>
-            )}
-          </div>
-        ))}
+        {items.map((item) => <Action item={item} key={item.key} />)}
       </div>
     </section>
   );

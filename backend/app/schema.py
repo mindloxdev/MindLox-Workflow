@@ -133,6 +133,12 @@ LATER_COLUMNS = {
 }
 
 
+# v2.8 adds `client_notes`, which `create_all` makes on its own — a new table
+# needs nothing here. It is listed for the same reason the others are: somebody
+# reading this file wants to know what a restart will do, and "nothing" is an
+# answer worth writing down.
+
+
 def bring_up_to_date(engine: Engine) -> None:
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())

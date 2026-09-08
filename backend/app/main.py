@@ -25,12 +25,13 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy import create_engine, delete, func, insert, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from . import assessments, dashboard, exports, ingest, interviews, matching
+from . import assessments, crm, dashboard, exports, ingest, interviews, matching
 from .models import (ASSESSMENT_CLOSED, ASSESSMENT_STATUSES, AVAILABILITY,
                      COVER, INTERVIEW_MODES, INTERVIEW_OUTCOMES,
                      INTERVIEW_STAGES, INTERVIEW_STATUSES, MODES, ROLES, SPLIT,
                      Application, Assessment, Assignment, Base, Batch,
-                     BatchApplication, Interview, Job, Profile, Setting, Upload,
+                     BatchApplication, ClientNote, Interview, Job, Profile,
+                     Setting, Upload,
                      User, applied_stamp, from_working, next_stage,
                      to_working, utcnow, working_label)
 from .schema import bring_up_to_date
@@ -439,6 +440,13 @@ class AssessmentPatch(BaseModel):
     status: Optional[str] = None
     submission_url: Optional[str] = None
     notes: Optional[str] = None
+
+
+class ClientNoteIn(BaseModel):
+    """A manager's own annotation. Advisory: none of it reaches dispatch."""
+    priority: Optional[bool] = None
+    being_worked: Optional[bool] = None
+    note: Optional[str] = None
 
 
 class SettingsIn(BaseModel):
@@ -1981,6 +1989,33 @@ def _may_edit_job(db: Session, job_id: int, user: User) -> None:
                              "or ask your manager.")
 
 
+def _being_worked(db: Session, company: str, title: str, url: str) -> Optional[dict]:
+    """Is this client flagged as already being worked, and by whom?
+
+    A manager's flag, never a block. It cannot stop the row being saved and it
+    changes nothing about what dispatch hands out — a flag that quietly held
+    jobs back would be a rule whose effect nobody could see, and the reason for
+    a missing job would be invisible on the screen it went missing from.
+    """
+    name = (company or "").strip()
+    if not name:
+        job = db.scalar(select(Job).where(
+            Job.fingerprint == matching.fingerprint(url, title, company)[0])) if url else None
+        name = (job.company or "") if job else ""
+    key = matching.client_key(name)
+    if not key:
+        return None
+    row = db.scalar(select(ClientNote).where(ClientNote.client_key == key,
+                                             ClientNote.being_worked == True))  # noqa: E712
+    if row is None:
+        return None
+    who = db.get(User, row.updated_by) if row.updated_by else None
+    return {"client": row.display_name or name,
+            "by": who.name if who else None,
+            "since": working_label(row.updated_at)["label"] if row.updated_at else None,
+            "note": row.note or ""}
+
+
 @app.get("/api/jobs/check")
 def check_duplicate(url: str = "", title: str = "", company: str = "",
                     profile_id: Optional[int] = None,
@@ -2009,9 +2044,16 @@ def check_duplicate(url: str = "", title: str = "", company: str = "",
     if not fingerprint:
         return empty
 
+    # A client somebody is already working, said in the one dialog a BD is
+    # certainly reading. Answered whether or not the posting itself is known,
+    # because the point is the company, not the link — and it is advisory:
+    # nothing here stops the row being saved.
+    working = _being_worked(db, company, title, url)
+
     job = db.scalar(select(Job).where(Job.fingerprint == fingerprint))
     if job is None:
-        return {**empty, "fingerprint": fingerprint, "tier": tier}
+        return {**empty, "fingerprint": fingerprint, "tier": tier,
+                "being_worked": working}
 
     # Only the profiles this person is entitled to see. A BD is told plainly
     # that a colleague applied — the new-jobs list already names them — but a
@@ -2039,7 +2081,8 @@ def check_duplicate(url: str = "", title: str = "", company: str = "",
 
     return {"duplicate": mine is not None, "fingerprint": fingerprint, "tier": tier,
             "job_id": job.id, "title": job.title or "", "company": job.company or "",
-            "url": job.url or "", "mine": mine, "others": others}
+            "url": job.url or "", "mine": mine, "others": others,
+            "being_worked": working}
 
 
 @app.patch("/api/jobs/{job_id}")
@@ -2999,6 +3042,85 @@ def delete_assessment(assessment_id: int, db: Session = Depends(get_db),
     db.delete(row)
     db.commit()
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# Clients
+#
+# Manager only, and checked on every route rather than hidden behind a tab. A
+# BD reading this screen would be reading every colleague's client relationships
+# at once, which is a different thing from the board they are allowed to see.
+# --------------------------------------------------------------------------- #
+
+@app.get("/api/crm/clients")
+def crm_clients(date_from: Optional[dt.date] = None, date_to: Optional[dt.date] = None,
+                status: str = "", q: str = "", sort: str = "last_activity",
+                page: int = 1, per_page: int = crm.PER_PAGE,
+                db: Session = Depends(get_db), _: User = Depends(admin_only)):
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(400, "The start date must be before the end date.")
+    return crm.client_list(db, date_from, date_to, status=status, q=q, sort=sort,
+                           page=page, per_page=per_page)
+
+
+@app.get("/api/crm/clients/{client_key}")
+def crm_client(client_key: str, db: Session = Depends(get_db),
+               _: User = Depends(admin_only)):
+    detail = crm.client_detail(db, client_key)
+    if detail is None:
+        raise HTTPException(404, "No client by that name.")
+    return detail
+
+
+@app.put("/api/crm/clients/{client_key}/note")
+def crm_save_note(client_key: str, body: ClientNoteIn,
+                  db: Session = Depends(get_db), user: User = Depends(admin_only)):
+    """The one write on this screen, and it changes nobody's work.
+
+    Kept in main.py rather than in crm.py so that module stays what it says it
+    is: a read model with no writes anywhere in it.
+    """
+    key = (client_key or "").strip()
+    if not key:
+        raise HTTPException(400, "No client to note.")
+
+    row = db.scalar(select(ClientNote).where(ClientNote.client_key == key))
+    if row is None:
+        row = ClientNote(client_key=key)
+        db.add(row)
+    # The spelling a person recognises, refreshed whenever the note is touched,
+    # so it survives the last posting at that client being withdrawn.
+    detail = crm.client_detail(db, key)
+    if detail:
+        row.display_name = detail["client"]["client"][:300]
+    if not row.display_name:
+        row.display_name = key[:300]
+
+    if body.priority is not None:
+        row.priority = bool(body.priority)
+    if body.being_worked is not None:
+        row.being_worked = bool(body.being_worked)
+    if body.note is not None:
+        row.note = body.note.strip()
+    row.updated_by = user.id
+    db.commit()
+    return crm.client_detail(db, key)["note"]
+
+
+@app.get("/api/crm/export.xlsx")
+def crm_export(date_from: Optional[dt.date] = None, date_to: Optional[dt.date] = None,
+               status: str = "", q: str = "",
+               db: Session = Depends(get_db), _: User = Depends(admin_only)):
+    listing = crm.client_list(db, date_from, date_to, status=status, q=q,
+                              per_page=crm.MAX_PER_PAGE, page=1)
+    everything = crm.client_list(db, date_from, date_to, status=status, q=q,
+                                 per_page=listing["totals"]["clients"] or 1, page=1)
+    details = [crm.client_detail(db, row["client_key"])
+               for row in everything["clients"]]
+    data = exports.client_workbook(everything["clients"],
+                                   [d for d in details if d])
+    return Response(data, media_type=XLSX,
+                    headers={"Content-Disposition": 'attachment; filename="clients.xlsx"'})
 
 
 # --------------------------------------------------------------------------- #

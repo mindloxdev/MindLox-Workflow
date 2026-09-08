@@ -406,6 +406,38 @@ class Assignment(Base):
     )
 
 
+class ClientNote(Base):
+    """A manager's own note against a client. The only writable thing on the
+    client screen, and advisory only.
+
+    Keyed on the derived client key rather than on a foreign key to `jobs`,
+    because there is no clients table and there is not going to be one: the
+    identity is the normalised company name and nothing else. That also means a
+    note outlives the last posting at that client being withdrawn, which is
+    exactly when somebody most wants to read "we approached them in March and
+    they went quiet".
+
+    `display_name` is carried alongside for the same reason. Once the jobs are
+    gone the key is a slug, and a screen that can only say `northwind health`
+    has lost the spelling a person would recognise.
+
+    Neither flag touches dispatch. A flag that quietly stopped jobs going out
+    would be a rule nobody could see the effect of, and the reason for a
+    missing job would be invisible on the BD's screen. `being_worked` is
+    surfaced instead, in the dialog that already fires when a link turns out to
+    be a duplicate.
+    """
+    __tablename__ = "client_notes"
+    id = Column(Integer, primary_key=True)
+    client_key = Column(String(300), unique=True, nullable=False, index=True)
+    display_name = Column(String(300), nullable=False, default="")
+    priority = Column(Boolean, nullable=False, default=False)
+    being_worked = Column(Boolean, nullable=False, default=False)
+    note = Column(Text, nullable=False, default="")
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class Interview(Base):
     """A client wanting to talk to whoever is behind a profile.
 

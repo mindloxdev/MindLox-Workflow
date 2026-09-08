@@ -73,7 +73,7 @@ def _working_day(value: Optional[dt.datetime]) -> Optional[dt.date]:
     return None if value is None else to_working(value).date()
 
 
-def _application_day(applied_on: Optional[str], created_at: Optional[dt.datetime]) -> Optional[dt.date]:
+def application_day(applied_on: Optional[str], created_at: Optional[dt.datetime]) -> Optional[dt.date]:
     """Use the date the BD entered, with a timestamp fallback for old rows."""
     text = (applied_on or "").strip()[:10]
     try:
@@ -121,7 +121,7 @@ def activity(db: Session, profile_ids: Optional[Sequence[int]] = None,
 
     tally: Counter = Counter()
     for applied_on, created_at in db.execute(query).all():
-        day = _application_day(applied_on, created_at)
+        day = application_day(applied_on, created_at)
         if (day is not None and
             (date_from is None or day >= date_from) and
             (date_to is None or day <= date_to)):
@@ -252,7 +252,7 @@ def all_time(db: Session, date_from: Optional[dt.date] = None,
     for profile_id, applied_on, created_at in db.execute(
         select(Application.profile_id, Application.applied_on, Application.created_at)
     ).all():
-        day = _application_day(applied_on, created_at)
+        day = application_day(applied_on, created_at)
         if (profile_id is not None and
             (date_from is None or (day and day >= date_from)) and
             (date_to is None or (day and day <= date_to))):
@@ -463,7 +463,7 @@ def range_report(db: Session, profile_ids: Optional[Sequence[int]],
         applied = applied.where(Application.profile_id.in_(list(profile_ids)))
     rows = []
     for row in db.execute(applied).all():
-        day = _application_day(row.applied_on, row.created_at)
+        day = application_day(row.applied_on, row.created_at)
         if ((date_from is None or (day is not None and day >= date_from))
                 and (date_to is None or (day is not None and day <= date_to))):
             rows.append(row)
@@ -518,7 +518,7 @@ def range_report(db: Session, profile_ids: Optional[Sequence[int]],
     # and the total they are meant to break down disagreed.
     per_day: Counter = Counter()
     for row in rows:
-        day = _application_day(row.applied_on, row.created_at)
+        day = application_day(row.applied_on, row.created_at)
         if day is not None:
             per_day[day] += 1
     span = ((date_to or _today()) - (date_from or min(per_day, default=_today()))).days + 1
@@ -752,10 +752,10 @@ def profile_detail(db: Session, profile: Profile, batch: Optional[Batch],
             .where(Application.profile_id == profile.id)
             .order_by(Application.id.desc())).all()
         if (not date_from and not date_to) or
-           ((not date_from or (_application_day(record.applied_on, record.created_at)
-                               and _application_day(record.applied_on, record.created_at) >= date_from))
-            and (not date_to or (_application_day(record.applied_on, record.created_at)
-                                 and _application_day(record.applied_on, record.created_at) <= date_to)))
+           ((not date_from or (application_day(record.applied_on, record.created_at)
+                               and application_day(record.applied_on, record.created_at) >= date_from))
+            and (not date_to or (application_day(record.applied_on, record.created_at)
+                                 and application_day(record.applied_on, record.created_at) <= date_to)))
     ]
     recent = recent[:RECENT_ROWS]
 

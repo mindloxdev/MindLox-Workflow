@@ -639,6 +639,58 @@ tbody tr:last-child td { border-bottom: none; }
 .board tr.is-mine { background: var(--a-soft); }
 .board tr.is-mine:hover { background: color-mix(in srgb, var(--a-soft) 65%, var(--a)); }
 
+/* ═══ The client board ═══════════════════════════════════════════
+ *
+ * Status columns, and the one place in the app that needs them. The table is
+ * the default and is what a manager reads on a Monday; this is what gets turned
+ * round to show somebody.
+ */
+.board-cols {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(230px, 1fr);
+  gap: var(--s3);
+  overflow-x: auto;
+  padding-bottom: var(--s2);
+}
+.board-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  background: var(--sunk);
+  border: 1px solid var(--rule);
+  border-radius: var(--r3);
+  padding: var(--s3);
+}
+.board-col-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font: 500 var(--t-xs)/1.4 var(--ui);
+  color: var(--slate);
+}
+.board-col-head b { font-family: var(--display); color: var(--ink); }
+.board-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  padding: var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r2);
+  box-shadow: var(--sh1);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color var(--t1) var(--out), transform var(--t1) var(--out);
+}
+.board-card:hover { border-color: var(--a-line); transform: translateY(-1px); }
+.board-card b { font-family: var(--display); font-size: var(--t-sm); }
+.board-card span { font-size: var(--t-xs); }
+
 /* ═══ Bits ════════════════════════════════════════════════════════════ */
 
 .pill {
@@ -1030,23 +1082,29 @@ a.btn { display: inline-block; border-bottom: none; }
       colour, so the ordering survives a phone in sunlight and every common
       kind of colour blindness. */
 .acts { display: flex; flex-direction: column; gap: var(--s2); }
+/* Wraps on purpose: the row is a button, an action and — once somebody asks
+   why — a paragraph that has to fall underneath both rather than squeeze in
+   beside them. No padding of its own; each child carries its own, so the
+   pressable area runs the full height of the row. */
 .act {
   display: flex;
-  gap: var(--s4);
-  align-items: flex-start;
-  padding: 12px var(--s4);
+  flex-wrap: wrap;
+  align-items: center;
   border: 1px solid var(--rule);
   border-left-width: 3px;
   border-radius: var(--r2);
   background: var(--surface);
   animation: rise var(--t3) var(--out) both;
 }
-.act-body { flex: 1; min-width: 0; }
-.act-body b { font-family: var(--display); font-size: var(--t-md); line-height: 1.4; }
+.act-line { flex: 1 1 260px; }
+.act-go { margin: 0 var(--s4) 0 auto; }
+/* `flex: 0 0 100%` with no max-width: a max-width clamps the flex base size,
+   so the paragraph fitted beside the title instead of dropping under it.
+   The reading measure comes from the padding instead. */
+.act-why { flex: 0 0 100%; }
 .act-tag {
   flex: 0 0 auto;
   min-width: 104px;
-  margin-top: 1px;
   font: 600 var(--t-xs)/1.5 var(--ui);
   letter-spacing: 0.01em;
 }
@@ -1068,10 +1126,8 @@ a.btn { display: inline-block; border-bottom: none; }
 .act-go { flex: 0 0 auto; align-self: center; white-space: nowrap; }
 
 @media (max-width: 660px) {
-  .act { flex-wrap: wrap; }
   .act-tag { min-width: 0; }
-  .act-body { flex: 1 1 100%; order: 2; }
-  .act-go { order: 3; align-self: flex-start; }
+  .act-go { margin: 0 var(--s4) 10px; }
 }
 
 /* ── The four headline numbers. Deliberately larger and fewer than `.stats`:
@@ -1199,3 +1255,143 @@ a.btn { display: inline-block; border-bottom: none; }
 .sheetcard > summary { font-weight: 400; color: var(--slate); }
 .sheetcard > summary:hover { color: var(--a-text); }
 .sheetcard[open] > summary { margin-bottom: var(--s3); }
+
+/* ═══ Disclosure ══════════════════════════════════════════════════════════
+ *
+ * One pattern for every section that starts closed. The manager's screen had
+ * grown nine sections deep and the answer to "what needs me" sat three scrolls
+ * above the answer to "how is the team doing"; now everything that is not
+ * needed to answer the first one opens on request.
+ *
+ * The header is a real button, so it is reachable by keyboard and announces
+ * its own state. The panel carries `hidden`, so a closed section is out of the
+ * tab order rather than merely invisible.
+ */
+.disc {
+  border: 1px solid var(--rule);
+  border-radius: var(--r3);
+  background: var(--surface);
+  box-shadow: var(--sh1);
+}
+.disc-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  padding: 13px var(--s4);
+  background: none;
+  border: 0;
+  border-radius: var(--r3);
+  box-shadow: none;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--t1) var(--out);
+}
+.disc-head:hover:not(:disabled) {
+  background: var(--sunk);
+  transform: none;
+  box-shadow: none;
+}
+.disc-title {
+  font: 600 var(--t-md)/1.3 var(--display);
+  letter-spacing: -0.01em;
+}
+.disc-hint {
+  flex: 1;
+  min-width: 0;
+  font: 400 var(--t-xs)/1.4 var(--ui);
+  color: var(--faint);
+  text-align: right;
+}
+.disc-body { padding: 0 var(--s4) var(--s4); }
+.disc-body[hidden] { display: none; }
+.disc.is-open > .disc-head { border-radius: var(--r3) var(--r3) 0 0; }
+
+.chev {
+  flex: 0 0 auto;
+  color: var(--slate);
+  transition: transform var(--t2) var(--out);
+}
+.chev.is-open { transform: rotate(90deg); }
+
+/* ═══ The compact figures and the one-line action rows ════════════════════ */
+
+/* The four numbers, without the paragraph each. What they mean is one press
+   away under the row rather than four paragraphs somebody reads once. */
+.figs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: var(--r3);
+  overflow: hidden;
+  box-shadow: var(--sh1);
+}
+.fig { background: var(--surface); padding: var(--s3) var(--s4); }
+.fig b {
+  display: block;
+  font: 600 28px/1.1 var(--ui);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.fig b.is-good { color: var(--ok-text); }
+.fig b.is-bad { color: var(--bad-text); }
+.fig-label { display: block; margin-top: 2px; font-size: var(--t-sm); color: var(--ink); }
+.fig-scope {
+  display: block;
+  font: 500 10px/1.4 var(--ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* An action row is one line until somebody asks why. The title already says
+   what is wrong and how many; the paragraph explaining why it matters is what
+   made six of these fill a screen. */
+.act-line {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  padding: 10px var(--s4);
+  background: none;
+  border: 0;
+  box-shadow: none;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.act-line:hover:not(:disabled) { transform: none; box-shadow: none; }
+.act-line b { font: 600 var(--t-sm)/1.4 var(--display); }
+.act-why {
+  padding: 0 var(--s4) 12px calc(var(--s4) + 14px + var(--s3));
+  padding-right: max(var(--s4), calc(100% - 78ch));
+}
+.act-why[hidden] { display: none; }
+
+/* The expander on a table row. Its own cell, because the row itself already
+   opens that person's screen and one target must not do two things. */
+.row-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  box-shadow: none;
+  color: var(--slate);
+  cursor: pointer;
+  border-radius: var(--r2);
+}
+.row-more:hover:not(:disabled) {
+  background: var(--sunk);
+  border-color: var(--rule);
+  transform: none;
+  box-shadow: none;
+}
+.row-detail { background: var(--sunk); }
+.row-detail .figures { max-width: 620px; }

@@ -1,6 +1,6 @@
 import React from "react";
 import { ActionList, plural } from "./Todo.jsx";
-import { BigFigures, sinceText } from "./widgets.jsx";
+import { Figures, sinceText } from "./widgets.jsx";
 
 /** The plain-English half of the manager's screen.
  *
@@ -191,7 +191,43 @@ export function Headline({ org, funnel }) {
     },
   ];
 
-  return <BigFigures items={cards} />;
+  return <Figures items={cards} />;
+}
+
+/** What the four numbers mean, for whoever has not read it before.
+ *
+ * Under the row rather than inside each card: a sentence per figure is most of
+ * a screen, and it is read once and scrolled past every morning after.
+ */
+export function HeadlineKey({ org, funnel }) {
+  const sent = (org.own_found || 0) + (org.from_others || 0);
+  return (
+    <div className="stack" style={{ gap: 8, maxWidth: 720 }}>
+      <p className="muted">
+        <b>Applications sent</b> — every job somebody applied for this round,
+        whether they found it themselves or a colleague found it for them.
+      </p>
+      <p className="muted">
+        <b>Of those, others&apos; jobs</b> — work that came off somebody else&apos;s
+        sheet{sent ? `, ${Math.round((org.from_others / sent) * 100)}% of the round` : ""}.
+        This is the part that would not have happened without everybody handing
+        in to one place.
+      </p>
+      <p className="muted">
+        <b>Clients who wanted to talk</b> and <b>offers of work</b> are all-time,
+        and cannot honestly be anything else: a client who replies three weeks
+        late is answering work from a round that closed, and counting that reply
+        against whichever round happens to be open would credit the wrong
+        fortnight.
+      </p>
+      {!funnel?.offers && (
+        <p className="hint">
+          No offers recorded yet. That figure only moves when the work was worth
+          sending, which is why it is the one worth steering by.
+        </p>
+      )}
+    </div>
+  );
 }
 
 /* ── Doubled-up effort ─────────────────────────────────────────────────── */
@@ -301,23 +337,116 @@ export function ListLegend() {
 
 /** Every person on the team, in the words a manager would use.
  *
- * The old column headings were the database's: Logged, Also found, List,
- * Worked through. Four of the nine needed a tooltip to be read at all, which
- * on a screen somebody skims once a morning means they were not read.
+ * Nine columns fitted on nobody's laptop and half of them were read once a
+ * month. Five stay — who, how much went out, how far through their handed-over
+ * work they are, and when they last did any — and the rest open per row.
  *
- * The columns add up now, which they did not before. "Applications sent" used
- * to be `applied` — only the jobs that came off somebody else's sheet — while
- * the same words at the top of the page meant everything they applied for. A
- * manager comparing the two found a headline of 224 sitting over a column that
- * summed to 52. Here the split is drawn rather than hidden: what they found
- * themselves, plus what a teammate found for them, makes the total.
+ * Two targets on a row, never one doing two jobs: the name opens that person's
+ * screen, the chevron opens the numbers underneath. A row that did both would
+ * navigate away from somebody trying to read it.
+ *
+ * The columns still add up. "Applications sent" is everything they applied
+ * for; own jobs and others' jobs are that same number split.
  */
+function PersonRow({ person, onOpen, onToggle, busy }) {
+  const [open, setOpen] = React.useState(false);
+  const id = React.useId();
+  const sent = person.logged + person.applied;
+  const behind = person.runs && person.handed_in < person.runs;
+
+  return (
+    <>
+      <tr>
+        <td>
+          <button className="link" onClick={() => onOpen(person)}
+                  title={`Open ${person.name}'s screen`}>
+            <b>{person.name}</b>
+          </button>
+          {person.role === "admin" && (
+            <span className="pill" style={{ marginLeft: 6 }}>manager</span>
+          )}
+          <div className="muted" style={{ fontSize: 11 }}>
+            {person.runs
+              ? `${person.runs} ${plural(person.runs, "profile", "profiles")}`
+              : "no profile yet"}
+            {behind && (
+              <span style={{ color: "var(--bad-text)" }}>
+                {" "}· {person.runs - person.handed_in} sheet
+                {person.runs - person.handed_in === 1 ? "" : "s"} not in
+              </span>
+            )}
+          </div>
+        </td>
+        <td className="mono num"><b>{num(sent)}</b></td>
+        <td>
+          <ListBar applied={person.applied} skipped={person.skipped}
+                   pending={person.pending} />
+          <span className="muted mono" style={{ fontSize: 11 }}>
+            {person.assigned ? `${person.done_pct}% done` : "nothing handed over"}
+          </span>
+        </td>
+        <td className="muted">{sinceText(person.last_logged)}</td>
+        <td style={{ textAlign: "right" }}>
+          <button type="button" className="row-more" aria-expanded={open}
+                  aria-controls={id}
+                  aria-label={`${open ? "Hide" : "Show"} the rest of ${person.name}'s figures`}
+                  onClick={() => setOpen((now) => !now)}>
+            <svg className={open ? "chev is-open" : "chev"} viewBox="0 0 16 16"
+                 width="14" height="14" aria-hidden="true" focusable="false">
+              <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor"
+                    strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </td>
+      </tr>
+      <tr className="row-detail" id={id} hidden={!open}>
+        <td colSpan={5}>
+          <div className="stack" style={{ gap: 10, padding: "4px 0 10px" }}>
+            <div className="figures">
+              <div title="Found on their own sheets, and applied for">
+                <b className="mono">{num(person.logged)}</b><span>own jobs</span>
+              </div>
+              <div title="A colleague found these and handed them over">
+                <b className="mono">{num(person.applied)}</b><span>others&apos; jobs</span>
+              </div>
+              <div title="Of their own digging, what somebody else had already found">
+                <b className="mono" style={{ color: person.duplicates ? "var(--bad-text)" : undefined }}>
+                  {num(person.duplicates)}
+                </b><span>found twice</span>
+              </div>
+              <div title="Job sheets handed in, out of the profiles they run">
+                <b className="mono" style={{ color: behind ? "var(--bad-text)" : undefined }}>
+                  {person.handed_in}/{person.runs}
+                </b><span>sheets in</span>
+              </div>
+            </div>
+            <div className="row" style={{ gap: 14, flexWrap: "wrap" }}>
+              <label className="row" style={{ gap: 6 }}>
+                <input type="checkbox" checked={!!person.dashboard_visible}
+                       disabled={busy || person.role === "admin"}
+                       onChange={(e) => onToggle(person, e.target.checked)} />
+                <span>
+                  {person.role === "admin"
+                    ? "A manager always has their own figures."
+                    : `${person.name} can see their own figures`}
+                </span>
+              </label>
+              <button className="ghost" onClick={() => onOpen(person)}>
+                Open {person.name}&apos;s screen
+              </button>
+            </div>
+          </div>
+        </td>
+      </tr>
+    </>
+  );
+}
+
 export function PeopleTable({ people, onOpen, onToggle, busy }) {
-  // A developer is on the payroll but does not hand in sheets, so a row of
-  // zeros against their name says nothing except that they are a developer.
-  // They have their own section further down. A *BD* with no profile is a
-  // different thing entirely — somebody who cannot do their job — so they
-  // stay on the table, and are named under it.
+  // A developer is on the payroll but hands in no sheets, so a row of zeros
+  // against their name says nothing except that they are a developer. They
+  // have their own section. A *BD* with no profile stays, and is named under
+  // the table — that is somebody who cannot do their job.
   const rows = people.filter((person) => person.runs > 0 || person.role !== "dev");
   const idle = rows.filter((person) => !person.runs && person.role === "bd");
 
@@ -328,76 +457,19 @@ export function PeopleTable({ people, onOpen, onToggle, busy }) {
           <thead>
             <tr>
               <th>Person</th>
-              <th className="num" title="Job sheets handed in, out of the profiles they run">
-                Sheets in
-              </th>
               <th className="num">Applications sent</th>
-              <th className="num" title="Jobs they went out and found on their own sheet">
-                Own jobs
-              </th>
-              <th className="num" title="Jobs a colleague found and handed to them">
-                Others&apos; jobs
-              </th>
-              <th className="num" title="Jobs they found that a colleague had already found">
-                Found twice
-              </th>
-              <th style={{ width: 156 }}>Their list</th>
+              <th style={{ width: 168 }}>Their list</th>
               <th>Last worked</th>
-              <th>Own figures</th>
+              <th style={{ width: 44 }}><span className="sr-only">More</span></th>
             </tr>
           </thead>
           <tbody>
             {rows.map((person) => (
-              <tr key={person.user_id} style={{ cursor: "pointer" }}
-                  onClick={() => onOpen(person)}>
-                <td>
-                  <b>{person.name}</b>
-                  {person.role === "admin" && (
-                    <span className="pill" style={{ marginLeft: 6 }}>manager</span>
-                  )}
-                  <div className="muted" style={{ fontSize: 11 }}>
-                    {person.runs
-                      ? `${person.runs} ${plural(person.runs, "profile", "profiles")}`
-                      : "no profile yet"}
-                  </div>
-                </td>
-                <td className="mono num"
-                    style={{ color: person.runs && person.handed_in < person.runs
-                      ? "var(--bad-text)" : undefined }}>
-                  {person.handed_in}/{person.runs}
-                </td>
-                <td className="mono num"><b>{num(person.logged + person.applied)}</b></td>
-                <td className="mono num">{num(person.logged)}</td>
-                <td className="mono num">{num(person.applied)}</td>
-                <td className="mono num"
-                    style={{ color: person.duplicates ? "var(--bad-text)" : undefined }}>
-                  {num(person.duplicates)}
-                </td>
-                <td>
-                  <ListBar applied={person.applied} skipped={person.skipped}
-                           pending={person.pending} />
-                  <span className="muted mono" style={{ fontSize: 11 }}>
-                    {person.assigned ? `${person.done_pct}% done` : "nothing handed over"}
-                  </span>
-                </td>
-                <td className="muted">{sinceText(person.last_logged)}</td>
-                <td onClick={(e) => e.stopPropagation()}>
-                  <label className="row" style={{ gap: 6 }}>
-                    <input type="checkbox" checked={!!person.dashboard_visible}
-                           disabled={busy || person.role === "admin"}
-                           title={person.role === "admin"
-                             ? "A manager always has their own figures."
-                             : `Let ${person.name} see their own figures`}
-                           onChange={(e) => onToggle(person, e.target.checked)} />
-                    <span className={person.dashboard_visible ? "pill on" : "pill off"}>
-                      {person.dashboard_visible ? "can see" : "hidden"}
-                    </span>
-                  </label>
-                </td>
-              </tr>
+              <PersonRow key={person.user_id} person={person} onOpen={onOpen}
+                         onToggle={onToggle} busy={busy} />
             ))}
             {!rows.length && (
-              <tr><td colSpan={9} className="muted">Nobody on the team yet.</td></tr>
+              <tr><td colSpan={5} className="muted">Nobody on the team yet.</td></tr>
             )}
           </tbody>
         </table>
@@ -405,22 +477,18 @@ export function PeopleTable({ people, onOpen, onToggle, busy }) {
 
       <ListLegend />
       <p className="hint" style={{ maxWidth: 760 }}>
-        Reading a row: <b>applications sent</b> is everything they applied for, and the
-        two columns after it are that same number split — <b>own jobs</b> are the ones
-        they went out and found, <b>others&apos; jobs</b> are the ones a colleague found
-        and handed over. <b>Found twice</b> is how much of their own digging somebody
-        else had already done, which is effort spent for nothing. <b>Their list</b> is
-        how far through the handed-over work they have got. Click any row to open that
-        person&apos;s own screen.
+        <b>Applications sent</b> is everything they applied for. <b>Their list</b> is
+        how far through the work a colleague handed them they have got. Press a
+        name to open their screen, or the chevron for the rest of their figures.
       </p>
       {idle.length > 0 && (
         <p className="hint" style={{ maxWidth: 760 }}>
           {idle.map((person) => person.name).join(", ")}{" "}
           {plural(idle.length, "has", "have")} no profile to apply under yet, so there is
-          nothing for {plural(idle.length, "them", "them")} to hand in. Set one up
-          under <b>People</b>.
+          nothing for them to hand in. Set one up under <b>People</b>.
         </p>
       )}
     </div>
   );
 }
+

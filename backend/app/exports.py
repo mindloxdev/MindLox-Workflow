@@ -16,7 +16,12 @@ WIDTHS = {"#": 5, "Job title": 46, "Company": 26, "Client": 26, "Platform": 14, 
           "BD": 20, "Applied by": 30, "People": 9, "Status": 12,
           "Found by": 24, "Found on": 18, "Description link": 46,
           "When · ET": 18, "Applied as": 20, "Developer": 20, "Role": 40,
-          "Client email": 46,
+          "Client email": 46, "Client": 30, "Status": 22, "Own jobs": 11,
+          "Others' jobs": 13, "Found twice": 12, "Profiles": 30, "BDs": 24,
+          "Developers": 24, "Furthest round": 18, "Open tests": 11,
+          "Next in the diary": 26, "Last activity": 15, "First approached": 17,
+          "Round": 22, "Follows": 20, "Reported": 26, "Brief": 50, "Debrief": 50,
+          "Deadline · ET": 18, "Set by": 20, "What": 40,
           "Round": 16, "Outcome": 12, "Follows": 18, "Reported by": 20,
           "What": 40, "Due · ET": 18, "Set by": 20, "Submitted": 18,
           "Submission": 46, "Notes": 60, "Applied on": 18}
@@ -70,6 +75,76 @@ def assignment_workbook(person: str, jobs: list[dict]) -> bytes:
         for i, j in enumerate(jobs, start=1)
     ]
     _write_sheet(book, f"{person} jobs", columns, rows)
+    stream = io.BytesIO()
+    book.save(stream)
+    return stream.getvalue()
+
+
+def client_workbook(clients: list[dict], details: list[dict]) -> bytes:
+    """Every client, every conversation and every test, as three sheets.
+
+    The same three cuts the screen shows, in the order somebody reads them: who
+    the clients are, what was said, and what is owed. A conversation carries the
+    round it is and the round it followed, because a client who ran four rounds
+    before saying no is a different fact from four clients who each said no
+    once, and a flat list cannot tell them apart.
+    """
+    book = Workbook()
+    book.remove(book.active)
+
+    _write_sheet(
+        book, "Clients",
+        ["Client", "Status", "Applications sent", "Own jobs", "Others' jobs",
+         "Found twice", "Profiles", "BDs", "Developers", "Furthest round",
+         "Open tests", "Next in the diary", "First approached", "Last activity"],
+        [[row["client"], row["status_label"], row["applications"], row["own_jobs"],
+          row["others_jobs"], row["found_twice"], ", ".join(row["profiles"]),
+          ", ".join(row["bds"]), ", ".join(row["developers"]),
+          row["furthest"] or "", row["open_tests"],
+          (row["next_up"] or {}).get("when", {}).get("label", ""),
+          row["first_seen"] or "", row["last_activity"] or ""]
+         for row in clients])
+
+    talks = []
+    for detail in details:
+        client = detail["client"]["client"]
+        for block in detail["conversations"]:
+            for row in block["rounds"]:
+                talks.append([
+                    client, row["when"]["label"], row["profile"],
+                    row.get("developer") or "", row["role"],
+                    f"{row['round']} of {row['rounds']} · {row['stage']}"
+                    if row.get("rounds", 1) > 1 else row["stage"],
+                    (row["follows"]["stage"] if row.get("follows") else ""),
+                    row["status"], row["outcome"],
+                    f"{row['reported_by']} · {row['reported_at']}"
+                    if row.get("reported_by") else "",
+                    (row["job"] or {}).get("url", ""), row.get("email_url", ""),
+                    row.get("notes", ""), row.get("debrief", "")])
+    _write_sheet(
+        book, "Conversations",
+        ["Client", "When · ET", "Applied as", "Developer", "Role", "Round",
+         "Follows", "Status", "Outcome", "Reported", "Job link", "Client email",
+         "Brief", "Debrief"],
+        talks)
+
+    tests = []
+    for detail in details:
+        client = detail["client"]["client"]
+        for row in detail["tests"]:
+            tests.append([
+                client, row["title"], row["profile"], row.get("developer") or "",
+                (row["due"]["label"] if row.get("due") else "none set"),
+                f"{row['status']} · overdue" if row["overdue"] else row["status"],
+                row.get("set_by") or "",
+                (row["submitted"]["label"] if row.get("submitted") else ""),
+                row["submission_url"], row.get("email_url", "")])
+    _write_sheet(
+        book, "Tests",
+        ["Client", "What", "Applied as", "Developer", "Deadline · ET", "Status",
+         "Set by", "Submitted", "Submission", "Client email"],
+        tests)
+
     stream = io.BytesIO()
     book.save(stream)
     return stream.getvalue()

@@ -6,6 +6,7 @@ import AdminHome from "./views/AdminHome.jsx";
 import Dashboard from "./views/Dashboard.jsx";
 import DevHome from "./views/DevHome.jsx";
 import DevProfiles from "./views/DevProfiles.jsx";
+import ManagerCRM from "./views/ManagerCRM.jsx";
 import ManagerDashboard from "./views/ManagerDashboard.jsx";
 import People from "./views/People.jsx";
 import { Loading } from "./views/widgets.jsx";
@@ -22,6 +23,7 @@ import { CommandPalette, ThemeToggle, ToastHost } from "./views/shell.jsx";
 const TABS = {
   admin: [
     { view: "dashboard", label: "Progress" },
+    { view: "clients", label: "Clients" },
     { view: "work", label: "Cycles" },
     { view: "people", label: "People" },
   ],
@@ -161,7 +163,8 @@ export default function App() {
         {isAdmin ? (
           view === "people" ? <People />
             : view === "work" ? <AdminHome />
-              : <ManagerDashboard onOpenBatches={() => go("work")} />
+              : view === "clients" ? <ManagerCRM />
+                : <ManagerDashboard onOpenBatches={() => go("work")} />
         ) : isDev ? (
           view === "details"
             ? <DevProfiles />

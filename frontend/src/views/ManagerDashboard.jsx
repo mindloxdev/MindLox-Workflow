@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api, safeUrl } from "../api.js";
 import {
   AssessmentBoard, Availability, CyclePicker, DateRange, DayByDay, DeveloperBoard,
-  Flow, Funnel, InterviewRows, Loading, RangeReport, Rounds, Segment, Skills,
-  StageLadder, Stalled, TeamBoard, Tiles, sinceText, workingToday,
+  Disclosure, Flow, Funnel, InterviewRows, Loading, RangeReport, Rounds, Segment,
+  Skills, StageLadder, Stalled, TeamBoard, Tiles, sinceText, workingToday,
 } from "./widgets.jsx";
-import { DoubledUp, Headline, NeedsYou, PeopleTable } from "./ManagerSummary.jsx";
+import {
+  DoubledUp, Headline, HeadlineKey, NeedsYou, PeopleTable,
+} from "./ManagerSummary.jsx";
 import PersonDashboard from "./PersonDashboard.jsx";
 
 /** One developer, close up.
@@ -476,15 +478,14 @@ export default function ManagerDashboard({ onOpenBatches }) {
   const peopleRows = showingToday ? todayRows : people;
 
   return (
-    <div className="stack" style={{ gap: 22 }}>
+    <div className="stack" style={{ gap: 18 }}>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
           <h1>How the team is doing</h1>
           <p className="muted" style={{ marginTop: 3 }}>
             {batch
-              ? <>Round of work: <b>{batch.name}</b> · {batch.status === "open"
-                  ? "still running, so these numbers are still moving"
-                  : "finished"}
+              ? <>Round <b>{batch.name}</b> · {batch.status === "open"
+                  ? "still running" : "finished"}
                   {batch.last_built_at && <> · lists last shared out {sinceText(batch.last_built_at)}</>}</>
               : "No round of work has been started yet."}
           </p>
@@ -502,44 +503,20 @@ export default function ManagerDashboard({ onOpenBatches }) {
 
       {note && <div className={note.bad ? "notice" : "notice ok"}>{note.text}</div>}
 
-      {/* First, and on its own. Everything below is the picture; this is the
-          list of things that will not fix themselves. */}
+      {/* First, and one line each. The title says what is wrong and how many;
+          why it matters opens on request. Six of these with a paragraph apiece
+          was the screenful that pushed everything else below the fold. */}
       <NeedsYou org={org} missing={missing} diary={diary} assessments={data.assessments} />
 
-      <section className="stack" style={{ gap: 10 }}>
-        <div>
-          <h2>The four numbers</h2>
-          <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            Left to right is the order the work happens in: applications go out, some of
-            them come off a colleague's sheet, a few clients want to talk, and a few of
-            those say yes. The grey word on each card says what it counts over.
-          </p>
-        </div>
+      {/* Then four numbers, and nothing else above the fold. Everything below
+          this point starts closed: it is worth reading, and not worth reading
+          every morning before the thing you came for. */}
+      <section className="stack" style={{ gap: 8 }}>
         <Headline org={org} funnel={data.funnel} />
-      </section>
-
-      <section className="stack" style={{ gap: 10 }}>
-        <div>
-          <h2>What the applications turned into</h2>
-          <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            Everything else on this page counts effort, and effort goes up when people
-            work harder. This is the part a client decides, and it only goes up when the
-            work was worth sending.
-          </p>
-        </div>
-        <Flow funnel={data.funnel} awaiting={diary?.counts.awaiting_outcome || 0} />
-      </section>
-
-      <section className="stack" style={{ gap: 10 }}>
-        <div>
-          <h2>Effort spent twice</h2>
-          <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            Two people going out and finding the same job. It is the one thing on this
-            page that costs money rather than making it, and the whole reason everybody
-            hands their sheet into one place.
-          </p>
-        </div>
-        <DoubledUp org={org} history={data.history} />
+        <Disclosure title="What these four numbers mean"
+                    hint="the windows they count over">
+          <HeadlineKey org={org} funnel={data.funnel} />
+        </Disclosure>
       </section>
 
       <section className="stack" style={{ gap: 10 }}>
@@ -547,14 +524,11 @@ export default function ManagerDashboard({ onOpenBatches }) {
           <div>
             <h2>How each person is doing</h2>
             <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-              One row per person, busiest first, with everything they run added
-              together.{" "}
               {datesSet
                 ? <>Counting <b>only the dates you picked</b> above.</>
                 : showingToday
-                  ? <>Counting <b>today so far</b>, on Eastern time — so a row of
-                      zeros at nine in the morning is a team that has not started
-                      yet, not a team that has done nothing.</>
+                  ? <>Counting <b>today so far</b>, on Eastern time — a row of zeros at
+                      nine in the morning is a team that has not started yet.</>
                   : <>Counting the <b>whole round</b>.</>}
             </p>
           </div>
@@ -573,151 +547,162 @@ export default function ManagerDashboard({ onOpenBatches }) {
           : <Loading lines={3} />}
       </section>
 
-      <section className="stack" style={{ gap: 10 }}>
-        <div>
-          <h2>Jobs found, day by day</h2>
-          <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            The whole team over the last thirty days, on Eastern time. Weekends are
-            drawn paler, so a quiet Saturday does not read as a team that stopped.
+      {/* ── Everything below opens on request ─────────────────────────────
+          Each one carries the number it is worth opening for, so a closed
+          section says "there are two things in here" rather than "there might
+          be something in here" — which is the difference between progressive
+          disclosure and hidden information. */}
+
+      <Disclosure title="What the applications turned into"
+                  badge={data.funnel?.offers
+                    ? `${data.funnel.offers} offer${data.funnel.offers === 1 ? "" : "s"}`
+                    : null}
+                  tone={data.funnel?.offers ? "on" : ""}
+                  hint="applications, interviews, offers, hires">
+        <div className="stack" style={{ gap: 10 }}>
+          <p className="hint" style={{ maxWidth: 680 }}>
+            Everything above counts effort, and effort goes up when people work
+            harder. This is the part a client decides.
           </p>
+          <Flow funnel={data.funnel} awaiting={diary?.counts.awaiting_outcome || 0} />
+          <Rounds rounds={data.funnel?.rounds} />
+          <StageLadder rows={data.funnel?.by_stage} />
         </div>
-        <DayByDay series={data.activity} />
-      </section>
+      </Disclosure>
 
-      {/* Everything past here is detail. Folded away because a manager who
-          opens this screen once a morning should be finished by now — and the
-          things they came for stop being findable if six tables sit under
-          them. Opening it is one click and the browser remembers nothing, so
-          the screen is the same tomorrow. */}
-      <details className="more">
-        <summary>Show the detail — interviews, tests, developers, every profile</summary>
+      <Disclosure title="Effort spent twice"
+                  badge={org.duplicates || null}
+                  tone={org.duplicates ? "off" : ""}
+                  hint="the same job found by two people">
+        <DoubledUp org={org} history={data.history} />
+      </Disclosure>
 
-        <div className="stack" style={{ gap: 22 }}>
-          <section className="stack" style={{ gap: 10 }}>
-            <div>
-              <h2>The conversations, round by round</h2>
-              <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-                How far each client conversation got, and where they stop. Interviews are
-                never counted against one round of work: a reply that lands three weeks
-                late belongs to the applications that earned it.
-              </p>
-            </div>
-            <StageLadder rows={data.funnel?.by_stage} />
-            <Rounds rounds={data.funnel?.rounds} />
-
-            {diary?.today.length > 0 && (
-              <div>
-                <h3>Today</h3>
-                <div style={{ marginTop: 8 }}>
-                  <InterviewRows rows={diary.today} showProfile />
-                </div>
-              </div>
-            )}
-            {diary?.upcoming.length > 0 && (
-              <div>
-                <h3>Coming up</h3>
-                <div style={{ marginTop: 8 }}>
-                  <InterviewRows rows={diary.upcoming.slice(0, 12)} showProfile />
-                </div>
-              </div>
-            )}
-
-            {/* Read-only from here. Whoever runs that profile books the next
-                round, and their screen is one click away under the developers —
-                a manager quietly booking into somebody else's client
-                relationship is how one reply becomes two conversations. */}
-            <Stalled rows={diary?.stalled} />
-
-            <AssessmentBoard
-              data={data.assessments}
-              heading="Tests clients have set"
-              note="Set by whoever runs the profile, done by the developer behind it. The only work here with a deadline on it."
-              limit={12}
-            />
-          </section>
-
-          <section className="stack" style={{ gap: 10 }}>
-            <div>
-              <h2>The developers</h2>
-              <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-                Who is behind each profile, and whether they could take work this week.
-                {" "}<b>Open</b> shows their screen as they see it.
-              </p>
-            </div>
-            <DeveloperBoard rows={data.developers || []} onOpen={(row) => openDetail(() => {
-              setOpenDev(row);
-              setOpenPerson(null);
-              setOpenProfile(null);
-            })} />
-          </section>
-
-          <section className="stack" style={{ gap: 10 }}>
-            <div>
-              <h2>Every profile separately</h2>
-              <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-                One person can run several profiles. This is each of them on its own,
-                best first. Click a row to open it.
-              </p>
-            </div>
-            <TeamBoard rows={profiles}
-                       onOpen={(id) => openDetail(() => setOpenProfile(id))} />
-          </section>
-
-          <section className="card pad stack" style={{ gap: 12 }}>
-            <div>
-              <h2>Who can see what</h2>
-              <p className="muted" style={{ marginTop: 3, maxWidth: 680 }}>
-                Two separate questions. You can see all of it whatever these say.
-              </p>
-            </div>
-
-            <div className="notice ok gate">
-              <b>1. Can a person see their own figures?</b> Off until you turn it on, one
-              person at a time, in the <b>Own figures</b> column further up this page.
-              {closedCount > 0
-                ? ` ${closedCount} ${closedCount === 1 ? "person cannot" : "people cannot"} see theirs yet.`
-                : " Everybody on the team can see theirs."}
-              {" "}Turning it off takes nothing away from their work — their list and the
-              sheet they hand in are untouched, only the screen of figures goes.
-            </div>
-
-            <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div>
-                <b style={{ fontFamily: "var(--display)" }}>2. Can they see each other?</b>
-                <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-                  Every profile side by side, ranked. Only reaches people who can already
-                  see their own figures.
-                </p>
-              </div>
-              <label className="row" style={{ gap: 8 }}>
-                <input type="checkbox" checked={boardOpen} disabled={saving}
-                       onChange={(e) => toggleBoard(e.target.checked)} />
-                <b style={{ fontFamily: "var(--display)",
-                            color: boardOpen ? "var(--ok-text)" : "var(--slate)" }}>
-                  {boardOpen ? "The team can see it" : "Only you can see it"}
-                </b>
-              </label>
-            </div>
-
-            {boardOpen && (
-              <div>
-                <p className="hint" style={{ marginBottom: 8 }}>
-                  Untick a profile to keep it off the shared board. It stays on this screen.
-                </p>
-                <div className="row" style={{ gap: 14 }}>
-                  {profiles.map((row) => (
-                    <label key={row.profile_id} className="row" style={{ gap: 6 }}>
-                      <input type="checkbox" checked={row.shared}
-                             onChange={(e) => shareProfile(row.profile_id, e.target.checked)} />
-                      {row.name}
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-          </section>
+      <Disclosure title="Jobs found, day by day"
+                  hint="the whole team, last thirty days">
+        <div className="stack" style={{ gap: 10 }}>
+          <p className="hint" style={{ maxWidth: 680 }}>
+            Eastern time. Weekends are drawn paler, so a quiet Saturday does not
+            read as a team that stopped.
+          </p>
+          <DayByDay series={data.activity} />
         </div>
-      </details>
+      </Disclosure>
+
+      <Disclosure title="Interviews and tests"
+                  badge={diary?.counts.scheduled || null}
+                  hint="today, the coming fortnight, and what clients set">
+        <div className="stack" style={{ gap: 14 }}>
+          {diary?.today.length > 0 && (
+            <div>
+              <h3>Today</h3>
+              <div style={{ marginTop: 8 }}>
+                <InterviewRows rows={diary.today} showProfile />
+              </div>
+            </div>
+          )}
+          {diary?.upcoming.length > 0 && (
+            <div>
+              <h3>Coming up</h3>
+              <div style={{ marginTop: 8 }}>
+                <InterviewRows rows={diary.upcoming.slice(0, 12)} showProfile />
+              </div>
+            </div>
+          )}
+
+          {/* Read-only from here. Whoever runs that profile books the next
+              round — a manager quietly booking into somebody else's client
+              relationship is how one reply becomes two conversations. */}
+          <Stalled rows={diary?.stalled} />
+
+          <AssessmentBoard
+            data={data.assessments}
+            heading="Tests clients have set"
+            note="Set by whoever runs the profile, done by the developer behind it. The only work here with a deadline on it."
+            limit={12}
+          />
+        </div>
+      </Disclosure>
+
+      <Disclosure title="The developers"
+                  badge={(data.developers || []).length || null}
+                  hint="who is behind each profile, and who could start on Monday">
+        <div className="stack" style={{ gap: 10 }}>
+          <p className="hint" style={{ maxWidth: 680 }}>
+            <b>Open</b> shows their screen as they see it.
+          </p>
+          <DeveloperBoard rows={data.developers || []} onOpen={(row) => openDetail(() => {
+            setOpenDev(row);
+            setOpenPerson(null);
+            setOpenProfile(null);
+          })} />
+        </div>
+      </Disclosure>
+
+      <Disclosure title="Every profile separately"
+                  badge={profiles.length || null}
+                  hint="one person can run several">
+        <div className="stack" style={{ gap: 10 }}>
+          <p className="hint" style={{ maxWidth: 680 }}>
+            Best first. Press a row to open it.
+          </p>
+          <TeamBoard rows={profiles}
+                     onOpen={(id) => openDetail(() => setOpenProfile(id))} />
+        </div>
+      </Disclosure>
+
+      <Disclosure title="Who can see what"
+                  badge={closedCount || null}
+                  tone={closedCount ? "warn" : ""}
+                  hint={closedCount
+                    ? `${closedCount} cannot see their own figures yet`
+                    : "everybody can see their own figures"}>
+        <div className="stack" style={{ gap: 12 }}>
+          <div className="notice ok gate">
+            <b>1. Can a person see their own figures?</b> Off until you turn it on,
+            one person at a time — press the chevron on their row above.
+            {closedCount > 0
+              ? ` ${closedCount} ${closedCount === 1 ? "person cannot" : "people cannot"} see theirs yet.`
+              : " Everybody on the team can see theirs."}
+            {" "}Turning it off takes nothing away from their work — their list and the
+            sheet they hand in are untouched, only the screen of figures goes.
+          </div>
+
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <b style={{ fontFamily: "var(--display)" }}>2. Can they see each other?</b>
+              <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+                Every profile side by side, ranked. Only reaches people who can already
+                see their own figures.
+              </p>
+            </div>
+            <label className="row" style={{ gap: 8 }}>
+              <input type="checkbox" checked={boardOpen} disabled={saving}
+                     onChange={(e) => toggleBoard(e.target.checked)} />
+              <b style={{ fontFamily: "var(--display)",
+                          color: boardOpen ? "var(--ok-text)" : "var(--slate)" }}>
+                {boardOpen ? "The team can see it" : "Only you can see it"}
+              </b>
+            </label>
+          </div>
+
+          {boardOpen && (
+            <div>
+              <p className="hint" style={{ marginBottom: 8 }}>
+                Untick a profile to keep it off the shared board. It stays on this screen.
+              </p>
+              <div className="row" style={{ gap: 14 }}>
+                {profiles.map((row) => (
+                  <label key={row.profile_id} className="row" style={{ gap: 6 }}>
+                    <input type="checkbox" checked={row.shared}
+                           onChange={(e) => shareProfile(row.profile_id, e.target.checked)} />
+                    {row.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </Disclosure>
     </div>
   );
 }

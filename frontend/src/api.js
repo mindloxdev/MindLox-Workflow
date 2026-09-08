@@ -100,6 +100,19 @@ const query = (batchId, dateFrom, dateTo) => {
   return text ? `?${text}` : "";
 };
 
+const crmQuery = ({ dateFrom, dateTo, status, q, sort, page, perPage }) => {
+  const params = new URLSearchParams();
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) params.set("date_to", dateTo);
+  if (status) params.set("status", status);
+  if (q) params.set("q", q);
+  if (sort) params.set("sort", sort);
+  if (page && page > 1) params.set("page", String(page));
+  if (perPage) params.set("per_page", String(perPage));
+  const text = params.toString();
+  return text ? `?${text}` : "";
+};
+
 export const api = {
   login: (email, password) => request("/auth/login", { method: "POST", body: { email, password } }),
   me: () => request("/auth/me"),
@@ -154,6 +167,19 @@ export const api = {
     request(`/dashboard/profiles/${profileId}${query(batchId, dateFrom, dateTo)}`),
 
   mySheets: (batchId) => request(`/batches/${batchId}/my-sheets`),
+
+  // Clients. Manager only, and checked on the server — the tab being absent
+  // for everybody else is a courtesy, not the control.
+  clients: ({ dateFrom = "", dateTo = "", status = "", q = "",
+              sort = "last_activity", page = 1, perPage = 50 } = {}) =>
+    request(`/crm/clients${crmQuery({ dateFrom, dateTo, status, q, sort, page, perPage })}`),
+  client: (key) => request(`/crm/clients/${encodeURIComponent(key)}`),
+  saveClientNote: (key, payload) =>
+    request(`/crm/clients/${encodeURIComponent(key)}/note`,
+            { method: "PUT", body: payload }),
+  // Used with `download`, not `request`.
+  clientsExportPath: ({ dateFrom = "", dateTo = "", status = "", q = "" } = {}) =>
+    `/crm/export.xlsx${crmQuery({ dateFrom, dateTo, status, q })}`,
 
   // Interviews. Scoped on the server from the token: a BD sees the profiles
   // they run, a developer the ones they are sold under, a manager everything.

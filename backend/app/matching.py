@@ -28,6 +28,24 @@ def normalize_text(value: object) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def client_key(company: object) -> str:
+    """The key two rows share when they name the same client.
+
+    Exactly `normalize_text`, named for what it is used for. `jobs.company_key`
+    is already this, computed once at build time, so grouping postings by
+    client is a plain GROUP BY — but an interview and an assessment carry the
+    client as free text, and those have to be keyed at read time. Both roads
+    have to arrive at the same string or one client's history splits in two.
+
+    Deliberately not fuzzy. `fuzzy_merge` below only ever collapses two rows
+    when the client *and* the title are both close, and loosening that to the
+    client alone would quietly fuse two companies' whole histories — which on a
+    screen a manager reads before an account call is the worst thing this
+    module could do.
+    """
+    return normalize_text(company)
+
+
 # Ordered: the first pattern that hits wins. Platform-native IDs are the most
 # reliable identity there is — same job, any referral link, same ID.
 #
