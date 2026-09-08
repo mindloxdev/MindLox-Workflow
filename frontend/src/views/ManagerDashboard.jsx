@@ -538,7 +538,7 @@ export default function ManagerDashboard({ onOpenBatches }) {
               value={when}
               onChange={setWhen}
               items={[{ key: "today", label: "Today" },
-                      { key: "round", label: "This round" }]} />
+                      { key: "round", label: "This Week" }]} />
           )}
         </div>
         {peopleRows
