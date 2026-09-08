@@ -81,6 +81,66 @@ def test_a_row_with_no_usable_link_has_no_stem():
     assert posting_stem("https://careers.acme.com/apply") == ""
 
 
+# --------------------------------------------------------------------------- #
+# The job id in the query string
+#
+# Plenty of job sites keep the posting id nowhere else. Dropping the whole query
+# collapsed every posting on such a site into one row — one team's live data had
+# five TeamHealth jobs, eight ADP jobs and eighteen Indeed jobs at eighteen
+# different companies fused into a single row each, which blocks dispatch and
+# fires "you already applied" on work nobody has touched.
+# --------------------------------------------------------------------------- #
+
+def test_two_postings_on_one_search_url_are_two_jobs():
+    base = ("https://www.teamhealthcareers.com/TGnewUI/Search/home/HomeWithPreLoad"
+            "?partnerid=26628&siteid=5770&PageType=JobDetails&jobid=")
+    one, _ = fingerprint(base + "854227#jobDetails=854227_5770", "Allowables Rep", "TeamHealth")
+    two, _ = fingerprint(base + "859151&jr_id=6a76", "Overpayment Rep", "TeamHealth")
+    assert one != two
+    assert "854227" in one
+
+
+def test_the_same_posting_through_two_referral_links_is_one_job():
+    """The guarantee the query was being dropped to protect. It still holds —
+    only the parameters that name the posting survive."""
+    base = ("https://www.teamhealthcareers.com/TGnewUI/Search/home/HomeWithPreLoad"
+            "?PageType=JobDetails&jobid=854227")
+    a, _ = fingerprint(base + "&partnerid=26628&jr_id=abc", "x", "y")
+    b, _ = fingerprint(base + "&partnerid=99999&utm_source=email#jobDetails=854227", "x", "y")
+    assert a == b
+
+
+def test_the_boards_that_keep_the_id_in_the_query():
+    boards = [
+        ("https://www.indeed.com/jobs?q=Medical+Scheduler&l=Remote&vjk=424643485d2702f8",
+         "https://www.indeed.com/jobs?q=Denial+Specialist&l=Remote&vjk=ffffffffffffffff"),
+        ("https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?ccId=19000101&jobId=56949",
+         "https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?ccId=19000101&jobId=10063"),
+        ("https://www.linkedin.com/jobs/search-results/?currentJobId=4460596778&trackingId=aa",
+         "https://www.linkedin.com/jobs/search-results/?currentJobId=4458940902&trackingId=bb"),
+    ]
+    for first, second in boards:
+        a, _ = fingerprint(first, "one", "Acme")
+        b, _ = fingerprint(second, "two", "Bravo")
+        assert a != b, first
+
+
+def test_a_session_token_is_never_treated_as_a_job_id():
+    """The opposite mistake. Keeping a per-visit token would mint a new row for
+    one posting every time somebody pasted it, and hand the same job out twice."""
+    a, _ = fingerprint("https://example.com/careers/48213?sessionid=abc&utm_source=x", "t", "c")
+    b, _ = fingerprint("https://example.com/careers/48213?sessionid=zzz&utm_source=y", "t", "c")
+    assert a == b
+
+
+def test_a_kept_query_survives_the_apply_stem():
+    """A URL whose identity is in the query has no apply-flow variant to strip —
+    the tail rules anchor on the end of the string, and the query is the end."""
+    url = ("https://www.teamhealthcareers.com/TGnewUI/Search/home/HomeWithPreLoad"
+           "?PageType=JobDetails&jobid=854227")
+    assert posting_stem(url).endswith("jobid=854227")
+
+
 def test_url_fallback_strips_tracking():
     assert canonical_url("HTTPS://WWW.Example.com/jobs/42/?ref=x#top") == "example.com/jobs/42"
 

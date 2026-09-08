@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+import urllib.parse
 from collections import defaultdict
 from typing import Iterable, Sequence
 
@@ -68,15 +69,57 @@ _ID_RULES: Sequence[tuple[re.Pattern, str, bool]] = (
 )
 
 
+# Query parameters that identify the posting rather than the search that found
+# it. Everything else in a query string is dropped, which is what makes one job
+# pasted through two referral links the same job.
+#
+# Dropping the *whole* query was the bug this list exists to fix. On plenty of
+# job sites the posting id lives nowhere else:
+#
+#   teamhealthcareers.com/...HomeWithPreLoad?partnerid=26628&jobid=854227
+#   workforcenow.adp.com/...recruitment.html?ccId=19000101&jobId=56949
+#   linkedin.com/jobs/search-results/?currentJobId=4460596778
+#   indeed.com/jobs?q=medical+scheduler&vjk=424643485d2702f8
+#
+# Strip the query on those and every posting on the site collapses into one
+# row: one team's live data had five different TeamHealth jobs, eight ADP jobs
+# and eighteen Indeed jobs at eighteen different companies all fused into a
+# single job each, which blocks dispatch and fires "you already applied" on
+# work nobody has touched.
+#
+# Named conservatively. A parameter has to look like a *job* id to be kept: a
+# bare `id` is as likely to be a session token, and keeping one of those would
+# split one posting into a new row on every visit — the opposite mistake, and
+# one that hands the same job out twice.
+_ID_PARAMS = frozenset({
+    "jobid", "jobno", "jobcode", "jobseqno", "jobopeningid", "currentjobid",
+    "vjk", "jk", "gh_jid", "opportunityid", "postingid", "postingseq",
+    "requisitionid", "reqid", "req", "vacancyid", "positionid",
+    "career_job_req_id", "indeedapplyablejobid",
+})
+
+
 def canonical_url(raw: object) -> str:
-    """Strip protocol, www, tracking params and trailing slash."""
+    """Strip protocol, www, the fragment, tracking params and trailing slash.
+
+    What survives is the host, the path, and any query parameter that names the
+    posting — see `_ID_PARAMS`. Kept parameters are sorted, so the same job
+    pasted with its arguments in a different order is still the same job.
+    """
     text = str(raw or "").strip()
     if not text or "." not in text:
         return ""
     text = text.lower()
     text = re.sub(r"^https?://", "", text)
     text = re.sub(r"^www\.", "", text)
-    return text.split("#")[0].split("?")[0].rstrip("/")
+    text = text.split("#")[0]
+    head, _, query = text.partition("?")
+    head = head.rstrip("/")
+    keep = sorted((key, value) for key, value in urllib.parse.parse_qsl(query)
+                  if key in _ID_PARAMS and value)
+    if keep:
+        head += "?" + "&".join(f"{key}={value}" for key, value in keep)
+    return head
 
 
 # The tail an apply flow adds to a listing. One posting, reached two ways: a
@@ -116,6 +159,8 @@ def posting_stem(raw: object) -> str:
     clean = canonical_url(raw)
     if not clean or "/" not in clean:
         return ""
+    if "?" in clean:
+        return clean
     previous = None
     while previous != clean:
         previous = clean
@@ -127,7 +172,7 @@ def posting_stem(raw: object) -> str:
 
 def split_url(raw: object) -> tuple[str, str]:
     """(host, path) from a canonical URL. Both empty when there is no usable host."""
-    clean = canonical_url(raw)
+    clean = canonical_url(raw).split("?")[0]
     if not clean:
         return "", ""
     site, _, rest = clean.partition("/")
