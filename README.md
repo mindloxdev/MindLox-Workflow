@@ -397,9 +397,23 @@ the half somebody is asked about at the end of a quarter.
 
 2. **Applications are recorded** — one row per profile per job, for good.
 
-3. **The pool is built** from this cycle's sheets *plus* anything still sitting
-   unworked on a participating profile's list from an earlier cycle. A job
-   somebody ran out of time for does not fall through the cracks.
+3. **The pool is built** from this cycle's sheets, and nothing else. A cycle
+   hands out the work it gathered.
+
+   Untouched jobs used to be dragged forward out of earlier cycles as well, so
+   that a job somebody ran out of time for did not fall through the cracks.
+   With one cycle open that reads well. With two open at once it was the bug the
+   BDs reported: the newer cycle gathered 79 postings and its lists came out
+   holding 359 places, 190 of them dragged out of the older cycle and 183 of
+   those never touched. "Others' jobs" was mostly last fortnight's leftovers,
+   and a cycle's figures counted work it never gathered. Both cycles rebuild on
+   the same timer, so each build pulled the other's untouched rows onto its own
+   lists and deleted them from the first — one job moving between two cycles
+   every five minutes.
+
+   Nothing is lost by leaving them out. The row stays on the cycle that
+   dispatched it, that cycle stays in the **Round** picker whether it is open or
+   closed, and while it is open its own timer keeps re-offering it.
 
 4. **The lists rebuild themselves.** A cycle stays open while the team works it.
    Every few minutes — you pick 5, 10, 15 or 30 when opening it — the server
@@ -432,7 +446,14 @@ the half somebody is asked about at the end of a quarter.
    once, a split cycle cannot hand one posting to two profiles.
 
 A job leaves a profile's rotation for good only when that profile marks it
-**applied** or **skipped**. Anything left as *to do* comes back next cycle.
+**applied** or **skipped**. Anything left as *to do* stays on the cycle that
+handed it over, and that cycle keeps offering it while it is open — it does not
+follow the profile into the next one.
+
+A profile is also never handed a job already waiting on one of its other lists.
+That is not history — nothing has been done with it yet — but two rows for one
+application is work counted twice, and with two cycles open it is the other half
+of the job that hopped between them.
 
 A **skipped** job also leaves the list the instant it is marked. There is
 nothing further to do about a posting this profile has turned down, and it is
@@ -1055,8 +1076,9 @@ Zahid    AI Engineer   Sara Khan   20 jobs
 ```
 
 `test_e2e.py` asserts what matters: a profile is never handed a job it already
-used, one person's two profiles do not restrict each other, unworked jobs come
-back and worked ones do not, split cycles keep every job to one profile,
+used, one person's two profiles do not restrict each other, unworked jobs stay
+on the cycle that dispatched them rather than following the profile forward,
+split cycles keep every job to one profile,
 rebuilding gives the same answer, one cycle's report never counts another's, and
 nothing a spreadsheet can contain becomes a live link or an Excel formula on a
 colleague's machine.

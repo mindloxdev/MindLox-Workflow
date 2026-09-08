@@ -755,7 +755,8 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                   </div>
                   )}
                   <p className="hint">
-                    <b>To do</b> comes back next cycle. <b>Applied</b> or <b>skipped</b>
+                    <b>To do</b> stays on this round until you get to it — it does not
+                    follow you into the next one. <b>Applied</b> or <b>skipped</b>
                     {" "}retires it from {profile?.name} for good.
                   </p>
                 </>

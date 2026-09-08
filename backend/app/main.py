@@ -1230,30 +1230,26 @@ def build_lists(db: Session, batch: Batch) -> dict:
 
     participants = sorted(set(handed_in) | set(joined))
 
-    # 4. Anything still sitting unworked on a participant's list from an earlier
-    #    cycle comes back into the pool. A job someone simply ran out of time
-    #    for should not fall through the cracks because a new cycle opened.
-    carried = db.execute(
-        select(Assignment.job_id, Assignment.profile_id)
-        .where(Assignment.batch_id != batch_id,
-               Assignment.status == "pending",
-               Assignment.profile_id.in_(participants))
-    ).all() if participants else []
-
-    pool_ids = {job.id for job in seen.values()} | {job_id for job_id, _ in carried}
-
-    # Carried jobs were not present in this cycle's sheets, so recover their
-    # market from the profiles that originally applied to them.
-    carried_ids = pool_ids - set(seen)
-    if carried_ids:
-        for chunk in _chunks(carried_ids):
-            for job_id, profile_id in db.execute(
-                select(Application.job_id, Application.profile_id)
-                .where(Application.job_id.in_(chunk))
-            ).all():
-                headline = all_profiles.get(profile_id).headline if profile_id in all_profiles else ""
-                if headline:
-                    headline_by_job[job_id].add(headline)
+    # 4. The pool is what this cycle's sheets hold, and nothing else.
+    #
+    #    Unworked jobs used to be dragged forward out of earlier cycles, so that
+    #    a job somebody ran out of time for did not fall through the cracks.
+    #    With one cycle open at a time that reads well. With two it is the bug
+    #    the BDs reported: the newer cycle gathered 79 postings and its lists
+    #    came out holding 359 places, 190 of them dragged out of the older cycle
+    #    and 183 of those never touched. "Others' jobs" was mostly last
+    #    fortnight's leftovers, and a cycle's figures counted work it never
+    #    gathered.
+    #
+    #    Worse, both cycles rebuild on the same timer, and each build pulled the
+    #    other's untouched rows onto its own lists and deleted them from the
+    #    first. The same job moved between cycles every five minutes.
+    #
+    #    Nothing is lost by leaving it out. Those rows stay exactly where they
+    #    were, on the cycle that dispatched them, and that cycle stays in the
+    #    round picker whether it is open or closed. Work belongs to the cycle
+    #    that gathered it.
+    pool_ids = {job.id for job in seen.values()}
 
     # 5. What each profile may NOT be given: any posting it has already used.
     #
@@ -1279,6 +1275,21 @@ def build_lists(db: Session, batch: Batch) -> dict:
         for job_id, pid in db.execute(
             select(Application.job_id, Application.profile_id)
             .where(Application.job_id.in_(chunk))
+        ).all():
+            blocked[job_id].add(pid)
+
+    # ...and anything already sitting unworked on one of their other cycles.
+    # Not "used" — they have not done anything with it yet — but a job that
+    # both cycles gathered would otherwise be handed out twice, one row per
+    # cycle, for a single application. It is also the other half of the job
+    # that hopped between cycles: whichever cycle built last took it off the
+    # one that built first. Now the cycle that dispatched it keeps it.
+    if participants:
+        for job_id, pid in db.execute(
+            select(Assignment.job_id, Assignment.profile_id)
+            .where(Assignment.batch_id != batch_id,
+                   Assignment.status == "pending",
+                   Assignment.profile_id.in_(participants))
         ).all():
             blocked[job_id].add(pid)
 
@@ -1349,21 +1360,6 @@ def build_lists(db: Session, batch: Batch) -> dict:
     if dispatch:
         db.execute(insert(Assignment), dispatch)
 
-    # A job that has moved onto this cycle's list should not still be sitting
-    # open on an earlier one, or the same work shows up once per cycle forever.
-    # Anything NOT re-dispatched keeps its old row, so it stays in the running.
-    placed = {(profile_id, job_id)
-              for profile_id, job_ids in assigned.items() for job_id in job_ids}
-    if placed:
-        stale = [row_id for row_id, profile_id, job_id in db.execute(
-            select(Assignment.id, Assignment.profile_id, Assignment.job_id)
-            .where(Assignment.batch_id != batch_id,
-                   Assignment.status == "pending",
-                   Assignment.profile_id.in_(participants))).all()
-            if (profile_id, job_id) in placed]
-        for chunk in _chunks(stale):
-            db.execute(delete(Assignment).where(Assignment.id.in_(chunk)))
-
     # 6. Report for the manager.
     profiles = {p.id: p for p in db.scalars(select(Profile)).all()}
     owners = {u.id: u.name for u in db.scalars(select(User)).all()}
@@ -1376,7 +1372,6 @@ def build_lists(db: Session, batch: Batch) -> dict:
     batch.report = {
         "Rows read": len(records),
         "Unique jobs": len(seen),
-        "Jobs carried over unworked": len(pool_ids) - len(seen),
         "Jobs two profiles both applied to": collisions,
         "Duplicate applications": wasted,
         "Jobs nobody could take": stats["saturated"],

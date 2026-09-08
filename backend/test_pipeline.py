@@ -643,8 +643,10 @@ def test_a_late_joiner_is_given_jobs_not_given_away(client, admin, bd, make_prof
     data = client.post(f"/api/batches/{second}/compute", headers=admin).json()
 
     given = {p["id"]: p["assigned"] for p in data["participants"]}
-    # 950-952 are its own history and never come back; 953-959 are new to it.
-    assert given[idle["id"]] == 7
+    # 950-952 are its own history and never come back. 953-955 it was already
+    # given on the first cycle and has not got to yet, so they stay there rather
+    # than being handed over a second time. 956-959 are new to it.
+    assert given[idle["id"]] == 4
 
 
 # --------------------------------------------------------------------------- #
@@ -821,11 +823,17 @@ def test_turning_one_job_down_does_not_bury_the_whole_client(
     hand_in(client, second, bd, mine["id"], sheet(range(1210, 1216)))
     client.post(f"/api/batches/{second}/compute", headers=admin)
 
+    # The apply-flow link is the same posting they turned down, so it is not
+    # offered again under its second URL. The other role at that client is
+    # untouched — it is still sitting on the first cycle, where it was given
+    # out, which is also why it is not repeated here.
     after = client.get(f"/api/batches/{second}/profiles/{mine['id']}/sheet",
                        headers=bd).json()["jobs"]
-    titles = {j["title"] for j in after}
-    assert "Data Engineer" not in titles, "the one they turned down"
-    assert "Platform Engineer" in titles, (
+    assert "Data Engineer" not in {j["title"] for j in after}, "the one they turned down"
+
+    still = client.get(f"/api/batches/{first}/profiles/{mine['id']}/sheet",
+                       headers=bd).json()["jobs"]
+    assert "Platform Engineer" in {j["title"] for j in still}, (
         "a different role at the same client is a different job")
 
 

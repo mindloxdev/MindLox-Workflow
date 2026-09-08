@@ -10,9 +10,9 @@ seen, Zahid the 20 it has never seen — and either may receive a job the other
 has already used, because they are two candidates, not one person applying
 twice.
 
-Note on isolation: every test mints its own profiles. Unworked jobs are carried
-between cycles on purpose, so tests that shared profiles would inherit each
-other's open lists.
+Note on isolation: every test mints its own profiles. A profile's history and
+its open lists both follow it across cycles, so tests that shared profiles would
+block each other's dispatch.
 """
 import io
 import itertools
@@ -247,7 +247,16 @@ def test_rebuilding_gives_the_same_answer(client, admin, new_profile):
             == [p["assigned"] for p in first["participants"]])
 
 
-def test_unworked_jobs_come_back_next_cycle(client, admin, new_profile):
+def test_unworked_jobs_stay_on_the_cycle_that_dispatched_them(client, admin, new_profile):
+    """A cycle's list is what that cycle's sheets held.
+
+    Untouched jobs used to be dragged forward into whatever cycle opened next.
+    Two cycles open at once turned that into the complaint behind this test: a
+    BD's "others' jobs" was mostly last fortnight's leftovers, and with both
+    cycles rebuilding on the same timer the same job moved between them every
+    five minutes. Nothing is lost by leaving it out — the row stays where it
+    was, and so does the cycle it is on.
+    """
     khuram = new_profile("ali@example.com")
     zahid = new_profile("sara@example.com")
     ali, sara = token(client, "ali@example.com"), token(client, "sara@example.com")
@@ -268,19 +277,24 @@ def test_unworked_jobs_come_back_next_cycle(client, admin, new_profile):
     assert len(listing(client, first, khuram, ali)) == 9
     assert mine[1]["id"] not in {job["id"] for job in listing(client, first, khuram, ali)}
 
-    # Nothing new enters the pool second time round, so only carry-forward can
-    # fill a list.
+    # The same sheets again, so the second cycle gathers nothing the first did
+    # not. Every one of those postings is either Khuram's own, or already
+    # waiting on his first list.
     second = open_cycle(client, admin, "Carry 2")
     hand_in(client, second, ali, khuram, sheet(range(3000, 3010)))
     hand_in(client, second, sara, zahid, sheet(range(3010, 3020)))
     data = client.post(f"/api/batches/{second}/compute", headers=admin).json()
 
     handed = {p["id"]: p["assigned"] for p in data["participants"]}
-    assert handed[khuram] == 8, "the eight still open return; applied and skipped do not"
+    assert handed[khuram] == 0, "nothing carries forward, and nothing is handed out twice"
 
-    stale = listing(client, first, khuram, ali)
-    assert len(stale) == 1, "only the applied one stays visible on the old cycle"
-    assert stale[0]["id"] == mine[0]["id"]
+    # Still there, on the cycle that gave them to him: the eight he has not got
+    # to, and the one he applied for. The skip is gone from the screen and has
+    # to stay gone.
+    kept = listing(client, first, khuram, ali)
+    assert len(kept) == 9
+    assert mine[0]["id"] in {job["id"] for job in kept}, "the one he applied for"
+    assert mine[1]["id"] not in {job["id"] for job in kept}, "the one he turned down"
     assert stored_status(first, khuram, mine[1]["id"]) == "skipped", \
         "the skip has to survive, or the job comes back next cycle"
 

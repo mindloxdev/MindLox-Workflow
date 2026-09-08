@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.matching import client_key
+from app.models import working_today
 
 TEAM = [("crm-boss@crm.example.com", "Cee Boss", "admin"),
         ("crm-bd@crm.example.com", "Cass Dee", "bd"),
@@ -289,12 +290,12 @@ def test_the_date_window_reads_when_the_work_happened(client, admin, bd, other_b
                "https://careers.timeworn.example.com/jobs/700/ar-specialist",
                profile=mine, bd_headers=bd, other=theirs, other_headers=other_bd)
 
-    long_ago = (dt.date.today() - dt.timedelta(days=400)).isoformat()
-    older = (dt.date.today() - dt.timedelta(days=380)).isoformat()
+    long_ago = (working_today() - dt.timedelta(days=400)).isoformat()
+    older = (working_today() - dt.timedelta(days=380)).isoformat()
     assert find(clients_of(client, admin, date_from=long_ago, date_to=older),
                 "Timeworn Freight") is None
 
-    today = dt.date.today().isoformat()
+    today = working_today().isoformat()
     assert find(clients_of(client, admin, date_from=today, date_to=today),
                 "Timeworn Freight") is not None
 
