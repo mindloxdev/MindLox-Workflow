@@ -61,6 +61,52 @@ def canonical_url(raw: object) -> str:
     return text.split("#")[0].split("?")[0].rstrip("/")
 
 
+# The tail an apply flow adds to a listing. One posting, reached two ways: a
+# colleague browsing pastes the listing, a colleague who actually applied
+# pastes whatever the apply button left in the address bar. Workday appends
+# /apply/autofillWithResume, iCIMS appends /job, a dozen others append /apply.
+#
+# Only ever stripped from the END, and only these words. Cutting on depth
+# instead — "the first two path segments identify the posting" — reads
+# ovationhealthcare.../en-US/ovationhealthcare as the identity and collapses
+# every job at that employer into one.
+# Two kinds, and the difference matters. The first may carry a sub-path of its
+# own — Workday's /apply/autofillWithResume — so it swallows whatever follows.
+# The second must be the very last segment: "job" and "jobs" sit in the middle
+# of nearly every careers URL there is, and letting those swallow the rest
+# turns careers.acme.com/jobs/48213/ar-specialist into careers.acme.com, which
+# is every job at Acme.
+_APPLY_TAIL = re.compile(
+    r"/(apply|apply-now|applynow|application|applications|submit|"
+    r"submit-application|autofillwithresume)(?:/.*)?$", re.I)
+_APPLY_LAST = re.compile(
+    r"/(job|jobs|start|begin|login|signin|register|confirm|review)$", re.I)
+
+
+def posting_stem(raw: object) -> str:
+    """One posting, however it was linked.
+
+    The listing and its own apply flow are the same job to a person and two
+    different URLs to a fingerprint, so a posting somebody has already applied
+    for or turned down comes back as a fresh row with no history against it.
+    This is what makes them equal again.
+
+    Deliberately narrow. It merges a URL with its own apply flow and nothing
+    else: two genuinely different openings have different stems, because the
+    part that identifies them is still in there.
+    """
+    clean = canonical_url(raw)
+    if not clean or "/" not in clean:
+        return ""
+    previous = None
+    while previous != clean:
+        previous = clean
+        clean = _APPLY_LAST.sub("", _APPLY_TAIL.sub("", clean))
+        if "/" not in clean:
+            return ""
+    return clean
+
+
 def split_url(raw: object) -> tuple[str, str]:
     """(host, path) from a canonical URL. Both empty when there is no usable host."""
     clean = canonical_url(raw)

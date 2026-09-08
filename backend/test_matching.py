@@ -6,7 +6,8 @@ guarantee that no two people get the same job.
 """
 from app.ingest import safe_url
 from app.matching import (canonical_url, cover, fingerprint, fuzzy_merge,
-                          normalize_text, overlap_matrix, partition)
+                          normalize_text, overlap_matrix, partition,
+                          posting_stem)
 
 
 def test_same_upwork_job_different_links():
@@ -20,6 +21,64 @@ def test_linkedin_and_indeed_ids():
     assert tier == "L1" and a.endswith("3912345678")
     b, tier = fingerprint("https://pk.indeed.com/viewjob?jk=a1b2c3d4e5f60718&from=serp", "x", "y")
     assert tier == "L1" and "a1b2c3d4e5f60718" in b
+
+
+# --------------------------------------------------------------------------- #
+# The apply flow
+#
+# One posting reached two ways: a colleague browsing pastes the listing, one
+# who actually applied pastes whatever the apply button left in the address
+# bar. Different URLs, so different fingerprints, so a job somebody had already
+# used came back as a fresh row with no history against it. `posting_stem` is
+# what makes those two equal again \u2014 and every test below that says *keep
+# apart* is a way this rule went wrong before it was narrowed.
+# --------------------------------------------------------------------------- #
+
+def test_a_listing_and_its_own_apply_url_are_one_posting():
+    listing = "https://careers.acme.com/jobs/48213/ar-specialist"
+    assert posting_stem(listing + "/apply?src=board") == posting_stem(listing)
+    # Workday hangs a sub-path off the apply step; iCIMS ends in /job.
+    workday = ("https://acme.wd5.myworkdayjobs.com/en-US/acme/job/Remote/"
+               "Specialist--Accounts-Receivable_R2726-1")
+    assert posting_stem(workday + "/apply/autofillWithResume?jr_id=6a9") \
+        == posting_stem(workday)
+    icims = "https://careers-acme.icims.com/jobs/13381/revenue-cycle-specialist"
+    assert posting_stem(icims + "/job?mode=submit_apply") == posting_stem(icims)
+
+
+def test_two_openings_are_kept_apart():
+    """The failure that matters most. One application must never bury a
+    client's other postings."""
+    one = posting_stem("https://careers.acme.com/jobs/9001/ar-specialist")
+    two = posting_stem("https://careers.acme.com/jobs/9002/ar-specialist")
+    assert one and two and one != two
+
+    same_id_different_role = posting_stem(
+        "https://careers.acme.com/jobs/9001/collections-lead")
+    assert same_id_different_role != two
+
+
+def test_job_and_jobs_are_only_stripped_at_the_very_end():
+    """`/jobs/` sits in the middle of nearly every careers URL there is.
+    Letting it swallow what follows turned careers.acme.com/jobs/48213/x into
+    careers.acme.com, which is every job at Acme."""
+    stem = posting_stem("https://careers.acme.com/jobs/48213/ar-specialist")
+    assert stem == "careers.acme.com/jobs/48213/ar-specialist"
+
+
+def test_a_board_that_keeps_its_id_in_the_query_is_left_alone():
+    """pk.indeed.com/viewjob?jk=... canonicalises to pk.indeed.com/viewjob,
+    which every Indeed job on earth shares. Those carry a platform id, so the
+    fingerprint identifies them and the stem is never asked."""
+    a, tier = fingerprint("https://pk.indeed.com/viewjob?jk=a1b2c3d4e5f60718", "x", "y")
+    b, _ = fingerprint("https://pk.indeed.com/viewjob?jk=ffffffffffffffff", "x", "y")
+    assert tier == "L1" and a != b
+
+
+def test_a_row_with_no_usable_link_has_no_stem():
+    assert posting_stem("") == ""
+    assert posting_stem("careers.acme.com") == ""
+    assert posting_stem("https://careers.acme.com/apply") == ""
 
 
 def test_url_fallback_strips_tracking():

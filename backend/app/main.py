@@ -1247,10 +1247,25 @@ def build_lists(db: Session, batch: Batch) -> dict:
                 if headline:
                     headline_by_job[job_id].add(headline)
 
-    # 5. What each profile may NOT be given: anything it has already applied to
-    #    (all-time), and anything it looked at and skipped. Note this is per
-    #    profile, not per person — Khuram having applied says nothing about
-    #    whether Zahid should.
+    # 5. What each profile may NOT be given: any posting it has already used.
+    #
+    #    Used means one of two things and they are blocked identically:
+    #    applied for at any time, or looked at and turned down. Per profile,
+    #    not per person — Khuram having applied says nothing about whether
+    #    Zahid should.
+    #
+    #    Blocked twice over, by row and by posting, because the row alone is
+    #    not enough. The same job reaches this system by several routes — the
+    #    listing, the apply flow with `/apply` on the end, a board's mirror of
+    #    a company careers page — and those fingerprint differently, so a
+    #    posting somebody has already worked comes back as a new row with no
+    #    history against it. Both halves of the bug BDs reported are this: a
+    #    job they turned down reappearing, and a new cycle handing them work
+    #    they had already applied for.
+    #
+    #    The by-row pass stays, and is not redundant. `_posting_key` needs both
+    #    a client and a title, and a row that carries only a link has neither —
+    #    for those the row id is the only identity there is.
     blocked: dict[int, set[int]] = defaultdict(set)
     for chunk in _chunks(pool_ids):
         for job_id, pid in db.execute(
@@ -1259,29 +1274,27 @@ def build_lists(db: Session, batch: Batch) -> dict:
         ).all():
             blocked[job_id].add(pid)
 
-    # Skips, twice over: the row itself, and the posting behind it.
-    #
-    # Blocking only the row was the bug BDs kept reporting — they turned a job
-    # down and a fortnight later it was back on the list. Nothing had gone
-    # wrong with the skip; the same posting had simply been handed in again on
-    # a different link, usually the apply URL rather than the listing, and a
-    # different link is a different fingerprint and so a different row with no
-    # skip against it.
-    #
-    # Scoped to the profiles taking part, so it is one query rather than one
-    # per job, and reads a few hundred rows on a real workspace.
-    turned_down: dict[int, set[str]] = defaultdict(set)
+    # By posting, for the profiles actually in the running. Two queries rather
+    # than one per job: a few thousand rows on a real workspace.
+    used: dict[int, set[str]] = defaultdict(set)
     if participants:
-        for job_id, pid, company_key, title in db.execute(
-            select(Assignment.job_id, Assignment.profile_id, Job.company_key, Job.title)
+        history = (
+            select(Application.job_id, Application.profile_id,
+                   Job.url, Job.company_key, Job.title)
+            .join(Job, Job.id == Application.job_id)
+            .where(Application.profile_id.in_(participants)),
+            select(Assignment.job_id, Assignment.profile_id,
+                   Job.url, Job.company_key, Job.title)
             .join(Job, Job.id == Assignment.job_id)
             .where(Assignment.status == "skipped",
-                   Assignment.profile_id.in_(participants))
-        ).all():
-            blocked[job_id].add(pid)
-            mark = _posting_key(company_key, title)
-            if mark:
-                turned_down[pid].add(mark)
+                   Assignment.profile_id.in_(participants)),
+        )
+        for query in history:
+            for job_id, pid, url, company_key, title in db.execute(query).all():
+                blocked[job_id].add(pid)
+                mark = _posting_key(url, company_key, title)
+                if mark:
+                    used[pid].add(mark)
 
     job_rows: dict[int, Job] = {job.id: job for job in seen.values()}
     missing = pool_ids - set(job_rows)
@@ -1296,10 +1309,11 @@ def build_lists(db: Session, batch: Batch) -> dict:
         if job is None:
             continue
         against = set(blocked.get(job_id, ()))
-        # ...and anyone who turned down this same posting under another link.
-        mark = _posting_key(job.company_key, job.title)
+        # ...and anyone who has already used this same posting under another
+        # link, whether they applied for it or turned it down.
+        mark = _posting_key(job.url, job.company_key, job.title)
         if mark:
-            against |= {pid for pid, marks in turned_down.items() if mark in marks}
+            against |= {pid for pid, marks in used.items() if mark in marks}
         pool.append({"job_id": job_id, "company_key": job.company_key or "",
                      "blocked_for": against,
                      "headlines": headline_by_job.get(job_id, set()),
@@ -1445,29 +1459,38 @@ def _naive_utc(value: Optional[dt.datetime]) -> Optional[dt.datetime]:
     return value.replace(tzinfo=None) if value.tzinfo else value
 
 
-def _posting_key(company: Optional[str], title: Optional[str]) -> str:
+def _posting_key(url: Optional[str], company: Optional[str],
+                 title: Optional[str]) -> str:
     """One posting, however it happened to be linked.
 
-    The same job reaches this system by several routes: the listing, the apply
-    flow with `/apply` on the end, a board's mirror of a company careers page.
-    Those are different URLs, so they fingerprint differently and become
-    different rows — which is right for counting, and wrong for a skip.
+    Somebody who applied for a job, or turned one down, has made a judgement
+    about the posting rather than about the row it arrived on — so it has to
+    survive the same job coming back on a different link. This is the key it
+    survives by.
 
-    A BD who turns a job down has read the client and the title and decided it
-    is not for this profile. That judgement is about the posting, not about the
-    row it arrived on, so it has to survive the same job coming back on a
-    different link. This is the key it survives by, and it is deliberately the
-    same pair the L3 fingerprint already uses when there is no URL at all — the
-    product has one definition of "the same job with no link to prove it", and
-    this is it.
+    The ladder is the fingerprint's own, with one rung widened. A platform id
+    is kept as it is; a plain URL is stripped back past the apply flow, so a
+    listing and its own apply URL agree; a row with no link at all falls back
+    to the client and the title, exactly as the fingerprint does.
 
-    Both halves are required. A title on its own is far too loose: "AI
-    Engineer" at two different clients is two jobs, and blocking on the title
-    alone would quietly bury a whole market after one skip.
+    An earlier version used the client and the title for *every* row. It was
+    far too broad: a client with two openings for one title — ordinary in
+    accounts receivable and support — had the second buried by the first, and
+    on the sample sheets it held back three quarters of the pool. Both halves
+    are still required in the fallback for the same reason: "AI Engineer" at
+    two different clients is two jobs.
     """
-    client = matching.normalize_text(company or "")
-    role = matching.normalize_text(title or "")
-    return f"{client}|{role}" if client and role else ""
+    mark, tier = matching.fingerprint(url or "", title or "", company or "")
+    # Only a plain URL needs the extra work. A platform id already survives
+    # every link variant that site can produce — that is what the L1 rules are
+    # for — and reaching past it would be actively wrong: pk.indeed.com/viewjob
+    # carries its job id in the query string, so stripping the query leaves a
+    # stem every Indeed job in the world shares.
+    if tier == "L2":
+        stem = matching.posting_stem(url)
+        if stem:
+            return "u:" + stem
+    return mark
 
 
 def _due_for_build(batch: Batch, now: dt.datetime) -> bool:
@@ -1703,20 +1726,20 @@ def _turned_down_elsewhere(db: Session, profile: Profile,
         return {}
     by_name = {p.id: p.name for p in others}
     marked: dict[str, set[str]] = defaultdict(set)
-    for pid, company_key, title in db.execute(
-        select(Assignment.profile_id, Job.company_key, Job.title)
+    for pid, url, company_key, title in db.execute(
+        select(Assignment.profile_id, Job.url, Job.company_key, Job.title)
         .join(Job, Job.id == Assignment.job_id)
         .where(Assignment.status == "skipped",
                Assignment.profile_id.in_(list(by_name)))
     ).all():
-        mark = _posting_key(company_key, title)
+        mark = _posting_key(url, company_key, title)
         if mark:
             marked[mark].add(by_name[pid])
     if not marked:
         return {}
     out: dict[int, list[str]] = {}
     for job in rows:
-        names = marked.get(_posting_key(job.company_key, job.title))
+        names = marked.get(_posting_key(job.url, job.company_key, job.title))
         if names:
             out[job.id] = sorted(names)
     return out

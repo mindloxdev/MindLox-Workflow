@@ -49,8 +49,33 @@ belongs to the **profile**, because that is what the client recognises.
 
 Two profiles sharing a headline is not a problem to solve. It is the normal case.
 Profiles with different headlines are kept in separate dispatch markets: a VA
-profile receives VA new jobs, while an Accounts Receivable profile receives
-Accounts Receivable new jobs.
+profile receives VA others' jobs, while an Accounts Receivable profile receives
+Accounts Receivable others' jobs.
+
+---
+
+## The words this uses
+
+One name per thing, on every screen, whoever is looking. A manager, a BD and a
+developer reading the same number have to read the same word for it, or they
+are not discussing the same number.
+
+| Word | What it counts |
+|---|---|
+| **Own jobs** | Jobs somebody went out and found on their own sheet, and applied for. |
+| **Others' jobs** | Jobs a colleague found, that the cycle handed over, and this profile then applied for. |
+| **Applications sent** | Own jobs + others' jobs. The week's work, whole. |
+| **Applied** | Marked as gone out. |
+| **Skipped** | Turned down, with a reason. Never offered to that profile again. |
+| **Still to do** | Handed over and not yet answered either way. Comes back next round. |
+| **Found twice** | A posting two profiles both went out and found. The second search was time spent for nothing. |
+| **Round** | One cycle of work: everybody hands in, the lists are built, the team works them. |
+
+Nothing on a screen is named after the column it is stored in. The database
+still says `logged`, `assigned` and `done_pct`; a person reading the app never
+sees any of the three. The mapping lives at the top of
+`frontend/src/views/widgets.jsx` so the next person changing a label can see
+what the words already mean.
 
 ---
 
@@ -117,6 +142,27 @@ the client actually asked for and there is no second copy of it anywhere.
 Every update is on the other person's screen within the minute with no
 forwarding, and the row says whose word it is — *Khuram Gill reported it ·
 Mon 24 Aug · 12:05*.
+
+### A link to the client's own email
+
+Optional, on an interview and on a test. The meeting link is where to be at two
+o'clock; this is what the client actually asked for, and three weeks later it is
+the only place their words still exist. A separate field on purpose — storing
+one in the other means whoever needs the wording opens a dead meeting room.
+
+It can be added at any of four moments: booking the interview, pressing **they
+replied** on the job record (the cheapest moment there will ever be, since the
+BD is reading the reply at that instant), recording a test, or afterwards in the
+**notes** drawer on any row. Either side can add it: a reply gets booked in ten
+seconds off a phone and the thread gets pasted in later, from a desk.
+
+Two defaults, both overridable. The **next round keeps the thread of the round
+it follows**, because it is the same conversation with the same client. A
+**test takes the thread off the call that produced it**. Both appear beside the
+meeting link as *their email* rather than a second anonymous *open* — the two
+links go to completely different places, and picking the wrong one at two
+o'clock costs a meeting. The pipeline download carries a **Client email**
+column.
 
 ### The ladder
 
@@ -190,7 +236,7 @@ confirmation and an extra step is one somebody forgets.
 
 The whole posting travels with it, not a useful-looking subset:
 
-| Job title | Company | Job link | Description link | Platform | Applied on | Headline |
+| Job title | Company | Job link | Description link | Platform | Applied on |
 |---|---|---|---|---|---|
 
 Those six are what a BD has in front of them when they answer the email, and
@@ -237,6 +283,10 @@ one posting in two.
 ---
 
 ## Assessments
+
+Called **tests** on every screen, because that is what a client calls them and
+the app had been using three words — assessment, take-home, test — for one
+thing. `assessments` is still the table.
 
 The third thing a client can ask for, after a reply and a call, and the one
 that costs a developer a weekend.
@@ -391,8 +441,16 @@ worth the space. The mark itself is kept underneath, because that row is what
 stops the job coming back. Downloads keep every row, skipped included: a
 download is the record of what the cycle dispatched, not a list of things to do.
 
-Every job on a list also says **who found it**. A run of jobs from one
-colleague's profile that are all wrong for yours is a fixable thing — but only
+Every job on a list also says **who found it** and **when it was found** — the
+stamp off the sheet of whoever put it into the pool, falling back to when the
+posting first entered the system. That column used to read this profile's own
+*applied on*, which is empty on every row of that list by definition: a job is
+on it precisely because this profile has not applied. It showed a dash on every
+row for as long as the screen existed. What a BD wants before opening a link is
+how old the posting is, and now that is what it says.
+
+A run of jobs from one colleague's profile that are all wrong for yours is a
+fixable thing — but only
 if you can see whose search they came from. Press one of those names and the
 list narrows to everything that profile found, because reading "found by
 Faizan" on a single row is a curiosity while seeing the whole run of them
@@ -400,6 +458,44 @@ together is what tells you whether to trust the next twenty. The same box
 filters by client, title, platform or link, and the download carries the tag
 too — a file somebody works through on a train should not be a worse document
 than the screen it came from.
+
+### The same job, arriving on a different link
+
+A profile is never handed a posting it has already used — applied for at any
+time, or turned down. That was blocked on the *row*, and the row was not
+enough.
+
+One posting reaches this system by several routes. A colleague browsing pastes
+the listing; a colleague who actually applied pastes whatever the apply button
+left in the address bar. Workday appends `/apply/autofillWithResume`, iCIMS
+appends `/job`, most others append `/apply`. Those are different URLs, so they
+fingerprint differently, so the posting arrived as a fresh row with no history
+against it — and the round handed somebody work they had already done, or a job
+they had already turned down.
+
+So the block reads the **posting**, using the fingerprint's own ladder with one
+rung widened:
+
+| The link says | What identifies the posting |
+|---|---|
+| A platform ID (Upwork, LinkedIn, Indeed) | The ID, untouched. Those already survive every link variant that site can produce. |
+| A plain URL | The URL with the apply-flow tail stripped off the end. |
+| No link at all | Client + title, exactly as the L3 fingerprint does. |
+
+Deliberately narrow, and narrow the hard way. An earlier version used client +
+title for *every* row: on the sample sheets it held back **52 of 70 jobs**,
+because one application for "AR Specialist at Northwind" buried every other AR
+Specialist role at that client. A version after that cut the URL on depth
+instead, which read `ovationhealthcare…/en-US/ovationhealthcare` as the identity
+and collapsed every job at that employer into one. `job` and `jobs` are only
+ever stripped when they are the very last segment, because they sit in the
+middle of nearly every careers URL there is.
+
+**What it still does not catch.** A posting mirrored on a job board *and* the
+client's own careers site has two unrelated URLs and stays two rows, so it can
+be handed over twice. Merging those would mean going back to client + title,
+which costs more than it saves. They are counted, at least: both show up under
+**found twice**.
 
 ### Profiles that have not handed anything in
 
@@ -429,25 +525,52 @@ list they did not expect can find out how they got there.
 
 ## The dashboards
 
-Both roles land on a dashboard. It is the screen that says what is waiting,
-and every route out of it is one button away.
+Every role lands on a screen that opens with the same thing: **one list of what
+will not fix itself**, hardest first, each row carrying the button that deals
+with it.
+
+Each of these screens had grown its own stack of coloured banners, in whatever
+order the code happened to check them. A BD could have an interview starting in
+forty minutes sitting underneath a note about a spreadsheet, and a developer's
+one irreplaceable job — saying how the interview actually went — was a tile in a
+row of six. There is one list now, and every item obeys three rules:
+
+1. It says what is wrong in a sentence somebody would say out loud, with the
+   number inside the sentence rather than floating beside it.
+2. It says why it matters. *3 replies waiting* is a fact; *three clients are
+   waiting on us* is a reason to move.
+3. It carries the button that fixes it. A screen that reports a problem without
+   a route to it is a dead end.
+
+Urgency is a word as well as a colour — **Do this now**, **Worth chasing**,
+**Happening today**, **When you can** — so the order survives a phone in
+sunlight and every common kind of colour blindness.
 
 ### Yours
 
 Once your manager has opened it for you. It leads on the one number worth acting
-on — jobs still sitting unworked on your list — with the
-button that takes you to them.
+on — others' jobs still sitting unworked on your list — with the button that
+takes you to them.
 
-Under it: what you logged this cycle, how much of it a colleague had already
-found, how much of your list you have worked through, a fortnight of daily
-activity, and a card per profile you run — each saying whether that identity
-owes a client a take-home, because a card about how much went out is half the
-story if it is silent about the test that could lose it. Below that, what the
-applications turned into, any conversation that cleared a round and then
-stopped, and the take-homes outstanding against your profiles. The duplicate
-count is the one to read twice. If ten of the thirty jobs you logged were already on somebody
-else's sheet, your search and theirs are covering the same ground, and that is
-fixable at the source in a way no amount of dispatching can match.
+Then four figures, not the ten that used to be there, four of which needed a
+tooltip to be read at all: **applications sent** this round, how many of those
+were **others' jobs**, how many were **also found by somebody else**, and how
+many **clients wanted to talk**. Each says which window it counts over, because
+two of them are this round and two are all-time and nothing in the words says
+which. The rest — what was handed over, what was turned down, how far through
+the list you are, the streak, today's interviews, tests outstanding — sits under
+them in one quiet row, because none of those is worth a headline on its own.
+
+Below that: what the applications turned into, any conversation that cleared a
+round and then stopped, the tests clients set, and a fortnight of daily
+activity. **Break it down by profile** folds the per-profile cards away, since
+most mornings the total is the answer and a row of cards between the figures and
+the diary is just distance.
+
+The **found twice** count is the one to read twice. If ten of the thirty jobs
+you found were already on somebody else's sheet, your search and theirs are
+covering the same ground, and that is fixable at the source in a way no amount
+of dispatching can match.
 
 ### The developer's
 
@@ -474,11 +597,17 @@ somebody else to type it in is how a week goes by. What stops one reply
 becoming two rows is not a permission but the clash check, which fires on any
 booking against the same developer whichever identity it was made under.
 
-Then their own record: how many applications have gone out in their name, how
-many became conversations, what came of them. They are entitled to that. It is
-their name on every one of those applications. Alongside it, the take-homes
-sitting on their week and any conversation that cleared a round and then
-stopped — the one thing on that screen they can fix in a single press.
+Their list opens on **what only you can do**, because that is literally true.
+A developer was in the room; until they say how it went, the answer does not
+exist anywhere for anybody to find. It used to be a tile in a row of six and a
+paragraph halfway down the page.
+
+Then their own record, in four figures rather than six: interviews to turn up to
+in the next seven days, interviews **with no result recorded** — which reads as
+*nothing is owed* when it is zero rather than as an accusation — applications
+sent in their name, and offers. They are entitled to that. It is their name on
+every one of those applications. Alongside it, the tests sitting on their week
+and any conversation that cleared a round and then stopped — the one thing on that screen they can fix in a single press.
 
 **My details** is the other half of the screen and the part a BD depends on:
 resume link, email, skills, rate, the hours they can be reached — and one
@@ -493,37 +622,79 @@ nobody submitted is a developer still quietly showing as free.
 
 ### The manager's
 
-The same picture for the whole workspace, plus the things only a manager can
-act on:
+Written for somebody who does not use the rest of the app and should not have to
+learn its vocabulary to read it.
 
-- **Who has not handed in.** Named, not counted. A cycle cannot be built until
-  two profiles have reported in, so this is usually the thing holding it up.
-- **Each person, rolled up.** One person may run several profiles, so this is
-  the only view that answers "how is Ali doing" rather than "how is Khuram
-  doing". **Open** on a row shows you their dashboard as they would see it, with
-  the switch that decides whether they can.
-- **Every profile**, ranked, clickable. Clicking one opens it: its figures, a
-  month of activity, how it has done cycle by cycle, and the last twenty jobs
-  it logged.
-- **Duplicated effort over time.** The share of the team's typing that two
-  profiles spent on the same posting, cycle by cycle. It is the number this
-  whole tool exists to bring down, and the only place you can see whether it
-  is going down.
-- **What it all produced.** The funnel for the whole workspace, today's
-  interviews by name and hour, and the count of interviews nobody has reported
-  back on.
+**What needs you.** The list, hardest first: clients waiting on a time, tests
+past a deadline, sheets not handed in, interviews today, conversations that went
+quiet, results nobody recorded.
+
+**The four numbers.** Applications sent this round, how many of those came off a
+colleague's sheet, and — all-time, because a reply lands weeks after the
+application that earned it — clients who wanted to talk and offers of work. Nine
+tiles were a wall the eye slid off, and the ones that mattered were in the
+middle of it. Each card says which window it counts over.
+
+**What the applications turned into.** Applications, interviews, offers, hires,
+drawn as bars on one shared scale. Four boxes with arrows between them hid the
+only thing worth seeing — the drop. A thousand applications and seventy
+interviews look identical when each is a number in its own box. One colour: the
+length is the measurement, and every bar is labelled with its own name, number
+and rate, so nothing depends on telling hues apart.
+
+**Effort spent twice.** Said as typing rather than as a percentage. *94 jobs
+were typed in twice* is a morning somebody spent twice; *18%* is a statistic.
+With the trend beside it, round by round — the number this whole tool exists to
+bring down, and the only place you can see whether it is going down.
+
+**How each person is doing.** One row per person, everything they run added
+together. It opens on **today**, because the question a manager walks in with is
+"has the team started", and a round-to-date total answers that identically on a
+busy Monday and a dead one. A **This round** switch sits beside the heading, and
+dates typed into the filter take over from both — somebody who has just asked
+for 1–15 September did not mean today. Only that table follows the switch:
+narrowing the four numbers, the drop and the duplication to one morning would
+make every one of them read as a bad week.
+
+The columns add up. **Applications sent** is everything they applied for, and
+the two columns after it are that same number split — **own jobs** and
+**others' jobs**. They used not to: the column counted only jobs off a
+colleague's sheet while the same words at the top of the page meant everything,
+so a headline of 224 sat over a column summing to 52.
+
+Developers are not on this table. A row of zeros against a developer's name says
+nothing except that they are a developer, and they have their own section. A
+*BD* with no profile stays, and is named underneath — that is somebody who
+cannot do their job.
+
+**Opening somebody takes you to their screen.** Their name as the heading, a
+back link at the top, their dashboard exactly as they see it, and the switch
+that decides whether they can see it. It used to be appended underneath, which
+meant a manager pressed a row and nothing appeared to happen — what they had
+asked for was a screenful further down, past the table they had just used. The
+same is true of a profile from **every profile** and of **Open** on a developer.
+It scrolls to the top on the way in and back to the row you pressed on the way
+out, and the round, the dates and the Today/This round switch are as you left
+them.
+
+**The detail folds away.** Interviews round by round, today's and the coming
+fortnight, conversations that stalled, tests across the workspace, the
+developers, every profile separately, and who may see whose figures — all behind
+one **Show the detail**. A manager who opens this screen once a morning should
+be finished before it, and the things they came for stop being findable if six
+tables sit under them.
+
+Two of those detail sections are worth calling out:
+
 - **Conversations that stalled.** Cleared a round, nothing booked after it.
   Read-only from here on purpose: whoever runs that profile books the next
-  round, and their screen is one click away under *The developers* — a manager
-  quietly booking into somebody else's client relationship is how one reply
-  becomes two conversations.
-- **Take-homes across the workspace**, late first. The only work in this
-  product with a deadline on it, and until now the only kind a manager had no
-  screen for at all.
+  round, and their screen is one click away — a manager quietly booking into
+  somebody else's client relationship is how one reply becomes two
+  conversations.
 - **The developers.** Who is behind each profile, whether they could start on
-  Monday, what is in their diary, and how many take-homes are sitting on them.
-  **Open** on a row is that developer's own screen, and outcomes can be
-  recorded from it — the person chasing them is usually the one looking.
+  Monday, what is in their diary, and how many tests are sitting on them.
+  **Open** is that developer's own screen, and outcomes can be recorded from it
+  — the person chasing them is usually the one looking.
 
 ### Between two dates
 
@@ -591,11 +762,12 @@ Nobody gets a dashboard until the manager opens it, one person at a time. A new
 account starts closed. Being measured on a screen should be a decision somebody
 made, not a side effect of having a login.
 
-The manager opens **Dashboard → Their dashboard**, hits **Open** on somebody's
-row, and is looking at that person's dashboard — the real one, the same
-component fed the same payload, so what you check before opening it is exactly
-what they will get. The switch to hand it over sits on top of it. It is also in
-the **Dashboard** column of **People and profiles** for when you already know.
+The manager presses somebody's row under **how each person is doing** and is
+taken to that person's screen — the real one, the same component fed the same
+payload, so what you check before opening it is exactly what they will get. The
+switch to hand it over sits at the top of it, beside their name. It is also in
+the **Own figures** column of the team table, and in the **Dashboard** column of
+**People and profiles**, for when you already know.
 
 Closing it takes nothing away from the work. Their list, the sheet they hand in,
 everything under **My work** is untouched — only the screen of figures goes, and
@@ -758,7 +930,8 @@ exercise the auto-mapper and the fuzzy tier.
 
 ```bash
 cd backend
-pytest test_matching.py -v      # 26 rules: fingerprints, fuzzy merge, both modes
+pytest test_matching.py -v      # the identity rules: fingerprints, the apply
+                                # stem, fuzzy merge, both dispatch modes
 pytest test_e2e.py -v -s        # full round trip, prints the report
 pytest test_dashboard.py -v     # the figures, and who may see whose
 pytest test_developer.py -v     # the developer side: the clock, the clash, the funnel
@@ -786,6 +959,12 @@ back and worked ones do not, split cycles keep every job to one profile,
 rebuilding gives the same answer, one cycle's report never counts another's, and
 nothing a spreadsheet can contain becomes a live link or an Excel formula on a
 colleague's machine.
+
+It is also the test that catches an over-eager matcher. Both attempts at the
+posting rule that were too broad showed up here first, as `Khuram 18, Zahid 0`
+against the expected `40` and `20` — the arithmetic in **The idea in one
+example** is checkable by hand precisely so that a rule which quietly stops
+dispatching work cannot pass.
 
 ---
 
@@ -832,13 +1011,45 @@ Read together rather than one at a time: a run of *wrong seniority* against one
 profile is usually something about the searches feeding it, not about the
 postings.
 
+### A skip belongs to the profile, and can cover all of them
+
+Turning a job down is scoped to the profile it was turned down under. Two
+profiles are two candidates in two markets: a posting wrong for an Accounts
+Receivable identity is often exactly right for a Customer Service one, and
+blocking both would destroy work.
+
+That is right, and it is also how a BD running two names came to report the
+skip as broken. They turned a job down under one name and met it again the
+following week under the other — more often than they were skipping, on a
+simulated fortnight of a real-sized team.
+
+Half the reasons people skip are about the *fit*: wrong seniority, wrong
+market. The other half are about the *job*: the rate, on-site only, a client
+already being worked. Those apply to every name. So the dialog asks, once:
+
+> **Turn it down for all 2 profiles I run**
+> Leave this off when the job is simply wrong for **Khuram** — it may suit one
+> of your other names. Tick it when the reason is about the job itself.
+
+Off by default. Ticked, the posting is gone from every name that person applies
+under and does not come back. Two guards: it never overwrites a profile that
+has already **applied** — that is work, not a rejection — and it only records
+against profiles actually taking part in that round, because writing a skip
+against a dormant profile would tell a manager it turned down a job it was
+never offered.
+
+And when it *is* only per-profile, the other list says so instead of looking
+broken:
+
+> **Senior AR Specialist** — *you turned this down under Khuram*
+
 ### Correcting a posting, and withdrawing an entry
 
 Both live on **All jobs**, on the row itself.
 
 **edit** rewrites the posting — title, client, platform, either link. There is
-one job row, so the correction reaches every profile holding it, the new-jobs
-lists included, straight away. Correcting the same fields **on your own sheet**
+one job row, so the correction reaches every profile holding it, the others'
+jobs lists included, straight away. Correcting the same fields **on your own sheet**
 does the same thing, and only for fields you actually changed: comparing the
 sheet against the job instead would make every save an assertion about every
 field, so re-saving an untouched sheet would stamp its old wording back over a
@@ -932,14 +1143,17 @@ are what a real run would write.
    details** — resume link, email, skills, rate, hours. Nothing else asks them
    for it, and a profile with no resume link is a BD applying with nothing to
    attach.
-4. Each BD signs in and picks the profile they are working as. Three tabs:
-   - **Jobs I applied to** — either *Add manually*, which gives a table where
-     every **+ New entry** adds a row stamped with the current Eastern time, or
-     *Upload a sheet* for anyone who already keeps a spreadsheet. Any column
-     layout works; the mapper guesses and they can correct it.
-   - **New jobs** — what this profile has never applied to, refreshed as the
-     lists rebuild.
+4. Each BD signs in and picks the name they are applying under. The tabs:
+   - **Own jobs** — what they went out and found themselves. Either *Add
+     manually*, which gives a table where every **+ New entry** adds a row
+     stamped with the current Eastern time, or *Upload a sheet* for anyone who
+     already keeps a spreadsheet. Any column layout works; the mapper guesses
+     and they can correct it.
+   - **Others' jobs** — what a colleague found and this profile has never
+     applied to, refreshed as the lists rebuild.
+   - **All jobs** — everything ever applied for, searchable.
    - **Interviews** — replies that turned into conversations, and the outcomes.
+   - **Tests** — what clients set, and how far along each is.
 5. Nobody needs to press anything. The lists rebuild on the timer as sheets
    arrive; **Build now** is there if you want it immediately. **Dashboard**
    shows you who has handed in, who is working their list and who is not,
@@ -958,7 +1172,7 @@ are what a real run would write.
    first-hand. Both appear on the BD's screen within the minute, tagged with
    who said so and when. That single outcome field is what makes every rate in
    the app mean anything.
-7b. If the client sends a take-home, put it under **Assessments** with whatever
+7b. If the client sends a test, record it under **Tests** with whatever
    deadline they gave — or none, if they gave none. The developer picks it up
    there, and anything still open past its deadline is called out on both
    screens.
@@ -1028,6 +1242,25 @@ Version 2.5 linked a round to the one it followed on from, so a client who ran
 four rounds reads as one story rather than four unrelated rows. One nullable
 column on `interviews`. Every interview already recorded has no predecessor,
 which is exactly what an empty column says.
+
+Version 2.6 added the reason a job was turned down, and the count of rows on a
+sheet the matcher can actually use. The second is backfilled on first start
+rather than left at zero, because a zero there reads as *handed in nothing* on
+the manager's screen, which is worse than the mismatch it was fixing.
+
+Version 2.7 added the link to the client's own email, on both `interviews` and
+`assessments`. One nullable column each, empty on every row already recorded,
+which is the truth: nobody was asked for it at the time.
+
+It also **repairs blank platforms**, once. `build_lists` used to set a job's
+platform only at the moment it created the row and never afterwards, so a
+posting first built from a sheet whose Platform column had not been mapped yet
+— or from the one colleague who left the cell blank — kept an empty platform for
+good and read as a dash on every screen, with the board named on a sheet all
+along. The build fills the gap on every pass now; the jobs already stranded are
+repaired on first start from the sheets that named them. Only blanks are
+touched, so a correction made by hand is never overwritten, and running it twice
+does nothing the second time.
 
 All of these are restart-only. Back up the file first anyway — it is one `cp`.
 
@@ -1105,7 +1338,7 @@ backend/
   seed.py         First accounts, profiles, developers and the sample data
   import_old_sheets.py  The team's pre-app spreadsheets, loaded as history
   test_matching.py, test_e2e.py, test_dashboard.py, test_developer.py,
-  test_pipeline.py
+  test_pipeline.py     215 tests in all
 
 frontend/
   src/
@@ -1113,9 +1346,13 @@ frontend/
     api.js        Fetch wrapper, token handling, downloads
     views/
       Login.jsx            Sign in
+      Todo.jsx             The one action list every screen opens with, and
+                           the BD's and the developer's versions of it
       PersonDashboard.jsx  One person's progress — the screen itself
       Dashboard.jsx        Fetches it for the person whose it is
       ManagerDashboard.jsx The workspace, each person, and the two switches
+      ManagerSummary.jsx   The manager's plain-English half: what needs you,
+                           the four numbers, effort spent twice, the team table
       BdHome.jsx           Logging jobs and working the list
       DevHome.jsx          A developer's day — the diary and their record
       DevProfiles.jsx      What a client is handed, kept by the developer
@@ -1127,9 +1364,11 @@ frontend/
       People.jsx           People, profiles, developers, and who is on the board
       shell.jsx            Toasts, the command palette and the theme — the
                            parts that outlive whichever screen is mounted
-      widgets.jsx          Tiles, sparklines, the board, the funnel, the stage
-                           ladder, the stalled list, the take-home board and
-                           the between-two-dates report
+      widgets.jsx          The shared pieces, and the glossary at the top of
+                           it: tiles and big figures, the day strip, the flow
+                           chart, the stage ladder, the stalled list, the
+                           board, the tests board and the
+                           between-two-dates report
     styles.css             The design system: one neutral ramp, four semantic
                            families, and every component this app uses
 ```
@@ -1166,5 +1405,10 @@ In `matching.py`:
   reposts at the risk of fusing genuinely different jobs. Raise them if you see
   distinct jobs being merged.
 - `_SUFFIX` — company-name noise words to ignore.
+- `_APPLY_TAIL` and `_APPLY_LAST`, read by `posting_stem` — the tails an apply
+  flow hangs off a listing. Add one when a board you use appends something new.
+  Keep the split: the first list may swallow a sub-path, the second must be the
+  very last segment. Putting `job` or `jobs` in the first list collapses every
+  posting on a careers site into its hostname.
 
 Change any of them, then run `pytest test_matching.py` to see what moved.

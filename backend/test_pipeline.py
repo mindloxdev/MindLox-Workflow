@@ -729,6 +729,68 @@ def test_a_skipped_job_does_not_come_back_on_a_different_link(
         "the posting they turned down came back under its apply link")
 
 
+def test_a_new_round_does_not_hand_back_work_already_done(
+        client, admin, bd, other_bd, make_profile):
+    """The other half of the same bug, reported a week after the first.
+
+    A profile applies for a posting off its own sheet. A new round opens, a
+    colleague hands the same posting in from the apply URL rather than the
+    listing, and it arrives as a new row with no application against it \u2014 so
+    the round hands somebody work they have already done.
+    """
+    mine = make_profile(bd_email="pl-bd@pipeline.example.com")
+    theirs = make_profile(bd_email="pl-bd2@pipeline.example.com")
+
+    listing = "https://careers.acme-three.example.com/jobs/71400/ar-specialist"
+    apply_url = listing + "/apply?src=board"
+
+    first = cycle(client, admin, f"Done{next(_serial)}")
+    hand_in(client, first, bd, mine["id"],
+            linked_sheet([(listing, "AR Specialist", "Acme Three"),
+                          ("https://example.com/jobs/20", "Filler", "Padding Co")]))
+    hand_in(client, first, other_bd, theirs["id"], sheet(range(1300, 1306)))
+    client.post(f"/api/batches/{first}/compute", headers=admin)
+
+    record = client.get("/api/jobs", params={"q": "Acme Three", "profile_id": mine["id"]},
+                        headers=bd).json()
+    assert record["total"] == 1, "the profile applied for it off its own sheet"
+
+    second = cycle(client, admin, f"Done{next(_serial)}")
+    hand_in(client, second, other_bd, theirs["id"],
+            linked_sheet([(apply_url, "AR Specialist", "Acme Three"),
+                          ("https://example.com/jobs/21", "Filler Two", "Padding Co")]))
+    hand_in(client, second, bd, mine["id"], sheet(range(1310, 1316)))
+    client.post(f"/api/batches/{second}/compute", headers=admin)
+
+    handed = client.get(f"/api/batches/{second}/profiles/{mine['id']}/sheet",
+                        headers=bd).json()["jobs"]
+    assert not [j for j in handed if j["company"] == "Acme Three"], (
+        "handed back a posting this profile had already applied for")
+
+
+def test_a_colleague_may_still_be_given_what_you_applied_for(
+        client, admin, bd, other_bd, make_profile):
+    """Blocked per profile, and only per profile. Two profiles are two
+    candidates: one having approached a client is the reason the other should
+    be offered it, not a reason to hold it back."""
+    mine = make_profile(bd_email="pl-bd@pipeline.example.com")
+    theirs = make_profile(bd_email="pl-bd2@pipeline.example.com")
+
+    listing = "https://careers.acme-four.example.com/jobs/71500/collections-lead"
+
+    batch = cycle(client, admin, f"Both{next(_serial)}")
+    hand_in(client, batch, bd, mine["id"],
+            linked_sheet([(listing, "Collections Lead", "Acme Four"),
+                          ("https://example.com/jobs/22", "Filler", "Padding Co")]))
+    hand_in(client, batch, other_bd, theirs["id"], sheet(range(1320, 1326)))
+    client.post(f"/api/batches/{batch}/compute", headers=admin)
+
+    handed = client.get(f"/api/batches/{batch}/profiles/{theirs['id']}/sheet",
+                        headers=other_bd).json()["jobs"]
+    assert [j for j in handed if j["company"] == "Acme Four"], (
+        "the colleague has never applied to it; it is exactly what they are for")
+
+
 def test_turning_one_job_down_does_not_bury_the_whole_client(
         client, admin, bd, other_bd, make_profile):
     """Both halves of the key are required. A different role at the same client
