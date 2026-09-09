@@ -147,6 +147,110 @@ def worked_cycle(client, admin, dana, devtwo, make_profile):
     return {"batch_id": batch_id, "first": first, "second": second}
 
 
+def _backdate_sheet(batch_id, profile_id, days):
+    """Age the Upload row without touching a single job on it."""
+    import datetime as dt
+    from app.main import SessionLocal
+    from app.models import Upload
+    db = SessionLocal()
+    row = db.query(Upload).filter(Upload.batch_id == batch_id,
+                                  Upload.profile_id == profile_id).one()
+    row.created_at = (dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+                      - dt.timedelta(days=days))
+    db.commit()
+    db.close()
+
+
+def _backdate_applications(profile_id, days):
+    """Age the record of the jobs themselves — they were logged another day."""
+    import datetime as dt
+    from app.main import SessionLocal
+    from app.models import Application
+    db = SessionLocal()
+    when = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(days=days)
+    for row in db.query(Application).filter(Application.profile_id == profile_id):
+        row.created_at = when
+    db.commit()
+    db.close()
+
+
+def _today_row(client, admin, batch_id, name):
+    from app.models import working_today
+    day = working_today().isoformat()
+    data = client.get(f"/api/dashboard/overview?batch_id={batch_id}"
+                      f"&date_from={day}&date_to={day}", headers=admin).json()
+    return next(row for row in data["profiles"] if row["name"] == name)
+
+
+# --------------------------------------------------------------------------- #
+# Today, on the manager's screen
+#
+# A sheet is a living document: a BD opens one and keeps typing into it all
+# week. Dating the jobs on it by when the *sheet* was started made the Today
+# column all-or-nothing and wrong in both directions at once.
+# --------------------------------------------------------------------------- #
+
+def test_todays_jobs_count_today_on_a_sheet_started_days_ago(client, admin, worked_cycle):
+    """The row of zeros the manager reported: thirty jobs logged this morning,
+    on a sheet opened last week, reading as nothing at all."""
+    first = worked_cycle["first"]
+    _backdate_sheet(worked_cycle["batch_id"], first["id"], days=3)
+
+    row = _today_row(client, admin, worked_cycle["batch_id"], first["name"])
+    assert row["logged"] == 30, "jobs logged today must not inherit the sheet's own age"
+    assert row["last_logged"], "and the count must agree with the 'last worked' beside it"
+
+
+def test_jobs_logged_on_an_earlier_day_are_not_todays(client, admin, worked_cycle):
+    """The other half, and the reason the figures read as inexact: a sheet that
+    happened to be started today handed the whole cycle's jobs to today."""
+    second = worked_cycle["second"]
+    _backdate_applications(second["id"], days=2)
+
+    row = _today_row(client, admin, worked_cycle["batch_id"], second["name"])
+    assert row["logged"] == 0, "work done on Monday is not work done today"
+
+
+def test_a_sheets_own_applied_on_date_decides_the_day(client, admin, dana, make_profile):
+    """A BD typing up Monday's applications on Wednesday did that work on
+    Monday, and their own date column is what says so."""
+    from app.models import working_today
+    first = make_profile("dash-one@dashboard.example.com")
+    second = make_profile("dash-two@dashboard.example.com")
+    batch_id = open_cycle(client, admin, f"Dated {next(_serial)}")
+
+    client.put(f"/api/batches/{batch_id}/profiles/{first['id']}/entries", json={"rows": [
+        {"url": f"https://www.upwork.com/jobs/~01{n:016x}", "title": f"Back {n}",
+         "company": f"Client {n} Ltd", "date": "2020-03-02"} for n in range(900, 904)]},
+        headers=dana)
+    hand_in(client, batch_id, admin, second["id"], range(910, 914))
+    assert client.post(f"/api/batches/{batch_id}/compute", headers=admin).status_code == 200
+
+    day = working_today().isoformat()
+    today = client.get(f"/api/dashboard/overview?batch_id={batch_id}"
+                       f"&date_from={day}&date_to={day}", headers=admin).json()
+    row = next(r for r in today["profiles"] if r["name"] == first["name"])
+    assert row["logged"] == 0, "work the sheet dates to 2020 is not work done today"
+
+    back_then = client.get(f"/api/dashboard/overview?batch_id={batch_id}"
+                           f"&date_from=2020-03-02&date_to=2020-03-02", headers=admin).json()
+    row = next(r for r in back_then["profiles"] if r["name"] == first["name"])
+    assert row["logged"] == 4, "it counts on the day the sheet says it happened"
+
+
+def test_the_team_row_and_the_persons_own_screen_agree(client, admin, dana, worked_cycle):
+    """What the manager did to find the truth: open the person. Unscoped, the
+    two views are the same numbers."""
+    first = worked_cycle["first"]
+    data = client.get(f"/api/dashboard/overview?batch_id={worked_cycle['batch_id']}",
+                      headers=admin).json()
+    team = next(row for row in data["profiles"] if row["name"] == first["name"])
+    theirs = client.get(f"/api/dashboard/profiles/{first['id']}"
+                        f"?batch_id={worked_cycle['batch_id']}", headers=dana).json()
+    for key in ("logged", "assigned", "applied", "skipped", "pending", "duplicates"):
+        assert team[key] == theirs["stats"][key], key
+
+
 # --------------------------------------------------------------------------- #
 # A BD's own dashboard
 # --------------------------------------------------------------------------- #

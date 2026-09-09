@@ -182,21 +182,48 @@ def cycle_stats(db: Session, batch_id: Optional[int],
     # A job two profiles both logged is the duplicated effort this whole product
     # exists to surface, so it is counted against each of them.
     by_job: dict[int, set[int]] = defaultdict(set)
-    batch_application_query = select(BatchApplication.job_id, BatchApplication.profile_id).where(
-        BatchApplication.batch_id == batch_id)
-    if date_from or date_to:
-        batch_application_query = batch_application_query.join(
-            Upload, (Upload.batch_id == BatchApplication.batch_id) &
-                    (Upload.profile_id == BatchApplication.profile_id))
-        if date_from:
-            batch_application_query = batch_application_query.where(
-                Upload.created_at >= dt.datetime.combine(date_from, dt.time.min))
-        if date_to:
-            batch_application_query = batch_application_query.where(
-                Upload.created_at < dt.datetime.combine(date_to + dt.timedelta(days=1), dt.time.min))
-    for job_id, profile_id in db.execute(
+    # Dated by the day the application went out, not by the day the sheet
+    # holding it was started.
+    #
+    # A sheet is a living document: a BD opens one on Monday and keeps typing
+    # into it all week, and `uploads.created_at` is stamped once, on the first
+    # row. Dating the jobs by it made every row inherit the day the sheet
+    # began, which on the manager's **Today** column was all-or-nothing and
+    # wrong in both directions at once. Somebody who opened their sheet
+    # yesterday and logged thirty jobs this morning read as a row of zeros —
+    # sitting beside "last worked five minutes ago", which said plainly that
+    # they had not done nothing. Somebody who happened to start a sheet today
+    # had the whole cycle's jobs counted as today's.
+    #
+    # `application_day` is the same clock the day-by-day strip and the all-time
+    # totals already use — the date the BD typed in their own "applied on"
+    # column, falling back to when the row was recorded for a sheet that has no
+    # such column. Two figures on one screen disagreeing about the same day
+    # would only be the next bug report.
+    #
+    # Filtered in Python rather than in SQL because that fallback is a rule,
+    # not an expression, and there is no second copy of it to drift from this
+    # one. It costs nothing: every row of this query is already read below.
+    batch_application_query = select(
+        BatchApplication.job_id, BatchApplication.profile_id,
+        Application.applied_on, Application.created_at,
+    ).join(
+        Application, (Application.job_id == BatchApplication.job_id) &
+                     (Application.profile_id == BatchApplication.profile_id),
+        isouter=True,
+    ).where(BatchApplication.batch_id == batch_id)
+
+    for job_id, profile_id, applied_on, created_at in db.execute(
         batch_application_query
     ).all():
+        if date_from or date_to:
+            day = application_day(applied_on, created_at)
+            if day is None:
+                continue
+            if date_from and day < date_from:
+                continue
+            if date_to and day > date_to:
+                continue
         by_job[job_id].add(profile_id)
 
     for holders in by_job.values():
