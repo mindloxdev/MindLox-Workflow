@@ -64,7 +64,7 @@ are not discussing the same number.
 |---|---|
 | **Own jobs** | Jobs somebody went out and found on their own sheet, and applied for. |
 | **Others' jobs** | Jobs a colleague found, that the cycle handed over, and this profile then applied for. |
-| **Applied this cycle** | Own jobs + others' jobs. The week's work, whole. All-time and per-client counts of the same thing stay **applications sent** — they are not this cycle's. |
+| **Applied** | Own jobs + others' jobs. The week's work, whole. Never "applications sent" — one count, one word. The scope rides on the label (**applied this cycle**, **applied, all time**) only where the screen does not already say it. |
 | **Applied** | Marked as gone out. |
 | **Skipped** | Looked at and said no to, with a reason. Never offered to that profile again. Never called "turned down". |
 | **Still to do** | Handed over and not yet answered either way. Comes back next cycle. |
@@ -1131,8 +1131,26 @@ warns you.
 
 Marking a job **skipped** retires it from that profile for good — no later cycle
 offers it again — so it is the one status change that asks a question first. The
-reason lands in `assignments.skip_reason` and appears on the manager's cycle
-report under **Turned down, and why**.
+reason lands in `assignments.skip_reason`.
+
+**Every skipped count opens.** It is the one decision on a BD's screen that
+destroys work, so a number nobody could open was the least accountable figure in
+the app: a BD could not read their own reasoning back at the end of a week, and a
+manager reading *47 skipped* on somebody's row could not tell a profile being
+protected from a week of good postings thrown away. Press the figure and the
+jobs appear underneath it, with the words they were turned down in:
+
+- on a BD's own **dashboard**, under *skipped, with a reason*;
+- on the same screen when a **manager** opens somebody — *Why Ali skipped them*;
+- on the manager's **cycle** screen, under *Others' jobs skipped* in the clock's
+  figures, one profile at a time.
+
+Each list is scoped exactly the way the figure that opened it is scoped — one
+profile, the same dates, and for the clock the exact window rather than whole
+days — so the list always adds up to the number that was pressed. A list that
+quietly showed the whole cycle under a figure counting one afternoon would be
+worse than no list at all. `GET /api/batches/{id}/skipped` is the endpoint; a BD
+sees the profiles they run and a manager sees everybody.
 
 Read together rather than one at a time: a run of *wrong seniority* against one
 profile is usually something about the searches feeding it, not about the

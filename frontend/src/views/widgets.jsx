@@ -143,7 +143,8 @@ function dayLabel(iso) {
  * `show` is "all" for a BD, whose week is applications first, and "interviews"
  * for a developer, who did not send any.
  */
-export function RangeReport({ report, show = "all", whose = "your" }) {
+export function RangeReport({ report, show = "all", whose = "your",
+                              onOpenSkipped = null, skippedOpen = false }) {
   if (!report) return null;
   const { applied, heard_back: heard, interviews: sat } = report;
   const span = [dayLabel(report.from), dayLabel(report.to)].filter(Boolean).join(" – ");
@@ -162,7 +163,7 @@ export function RangeReport({ report, show = "all", whose = "your" }) {
       {sendings && (
         <div className="stack" style={{ gap: 10 }}>
           <Tiles items={[
-            { label: "applications sent", value: applied.total },
+            { label: "applied", value: applied.total },
             { label: "a day, on average", value: applied.per_day,
               foot: `${applied.active_days} day${applied.active_days === 1 ? "" : "s"} worked` },
             { label: "own jobs", value: applied.own_found,
@@ -171,7 +172,11 @@ export function RangeReport({ report, show = "all", whose = "your" }) {
             { label: "others' jobs", value: applied.from_others,
               foot: "a colleague found these",
               hint: "Postings a colleague found and handed over, then applied for." },
-            { label: "skipped", value: applied.skipped },
+            { label: "skipped", value: applied.skipped,
+              hint: onOpenSkipped ? "Press to read why each one was turned down."
+                                  : undefined,
+              onClick: onOpenSkipped && applied.skipped ? onOpenSkipped : undefined,
+              open: skippedOpen },
             applied.busiest ? {
               label: "busiest day", value: applied.busiest.count,
               foot: dayLabel(applied.busiest.day),
@@ -313,9 +318,10 @@ export function Empty({ title, children, action }) {
  *                     then applied for.  (from_others / applied)
  *   Others' jobs given  what the cycle put on a profile's list, whether or not
  *                     anything has been done with it yet.  (assigned)
- *   Applied this cycle  own jobs + others' jobs. The week's work, whole.
- *                     All-time and per-client counts of the same thing stay
- *                     "applications sent": they are not this cycle's.
+ *   Applied           own jobs + others' jobs. The week's work, whole. Never
+ *                     "applications sent" — one count, one word. The scope
+ *                     rides on the label ("applied this cycle", "applied, all
+ *                     time") only where the screen does not already say it.
  *   Applied           marked as gone out.
  *   Skipped           a job this profile looked at and said no to, with a
  *                     reason. Never "turned down".  (skipped)
@@ -352,7 +358,7 @@ export function Flow({ funnel, awaiting = 0 }) {
 
   const steps = [
     { key: "applications",
-      label: funnel.scoped_to_cycle ? "Applied this cycle" : "Applications sent, all time",
+      label: funnel.scoped_to_cycle ? "Applied this cycle" : "Applied, all time",
       value: funnel.applications,
       foot: funnel.scoped_to_cycle ? "this cycle" : "every cycle" },
     { key: "interviews", label: "Clients who wanted to talk", value: funnel.interviews,
@@ -604,13 +610,33 @@ export function Figures({ items }) {
 export function Tiles({ items }) {
   return (
     <div className="stats">
-      {items.filter(Boolean).map((item) => (
-        <div className="stat" key={item.label} title={item.hint || undefined}>
-          <b style={item.tone ? { color: `var(--${item.tone})` } : undefined}>{item.value}</b>
-          <span>{item.label}</span>
-          {item.foot && <span className="foot">{item.foot}</span>}
-        </div>
-      ))}
+      {items.filter(Boolean).map((item) => {
+        const body = (
+          <>
+            <b style={item.tone ? { color: `var(--${item.tone})` } : undefined}>{item.value}</b>
+            <span>{item.label}</span>
+            {item.foot && <span className="foot">{item.foot}</span>}
+          </>
+        );
+        // A figure that can be opened is a button, not a div with a handler on
+        // it: the keyboard reaches it, a screen reader says it is pressable,
+        // and the `aria-expanded` says whether the thing it opens is showing.
+        // A tile with nothing behind it stays exactly as it was.
+        return item.onClick ? (
+          <button type="button" className="stat is-open" key={item.label}
+                  title={item.hint || undefined} onClick={item.onClick}
+                  aria-expanded={!!item.open}>
+            {body}
+            <span className="stat-more" aria-hidden="true">
+              {item.open ? "hide" : "see them"}
+            </span>
+          </button>
+        ) : (
+          <div className="stat" key={item.label} title={item.hint || undefined}>
+            {body}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -843,7 +869,7 @@ export function ProfileCard({ row, children, onOpen }) {
       <Progress applied={row.applied} skipped={row.skipped} pending={row.pending} />
       <div className="row muted" style={{ justifyContent: "space-between", fontSize: 12 }}>
         <span>{row.done_pct}% of others&apos; jobs done</span>
-        <span>{row.all_time} applications sent, all time</span>
+        <span>{row.all_time} applied, all time</span>
       </div>
       {/* A card about how much this identity applied for is half the story if
           it says nothing about the assessment it owes a client. Only drawn when
@@ -953,7 +979,7 @@ export function CopyButton({ value, label = "copy" }) {
 export function Funnel({ data, note = "", awaiting = 0 }) {
   if (!data) return null;
   const steps = [
-    { label: data.scoped_to_cycle ? "applied this cycle" : "applications sent",
+    { label: data.scoped_to_cycle ? "applied this cycle" : "applied",
       value: data.applications,
       foot: data.scoped_to_cycle ? "this cycle" : "all time" },
     { label: "interviews", value: data.interviews,

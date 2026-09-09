@@ -176,6 +176,22 @@ export const api = {
 
   mySheets: (batchId) => request(`/batches/${batchId}/my-sheets`),
 
+  // What was skipped in a cycle, and why. Scoped exactly like the count that
+  // opens it — one profile when one is named, and the same dates — or the list
+  // would not add up to the number that was pressed.
+  skipped: (batchId, { profileId = null, dateFrom = "", dateTo = "",
+                       since = "", until = "" } = {}) => {
+    const params = new URLSearchParams();
+    if (profileId) params.set("profile_id", String(profileId));
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
+    // The cycle clock counts an exact window rather than whole days.
+    if (since) params.set("since", since);
+    if (until) params.set("until", until);
+    const text = params.toString();
+    return request(`/batches/${batchId}/skipped${text ? `?${text}` : ""}`);
+  },
+
   // Clients. Manager only, and checked on the server — the tab being absent
   // for everybody else is a courtesy, not the control.
   clients: ({ dateFrom = "", dateTo = "", status = "", q = "",

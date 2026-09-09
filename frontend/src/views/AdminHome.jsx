@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { api, download, safeUrl } from "../api.js";
+import Skipped from "./Skipped.jsx";
 import { CycleClock, sinceText } from "./widgets.jsx";
 
 function Matrix({ names, rows }) {
@@ -52,6 +53,10 @@ export default function AdminHome() {
   // once a clock is running the cycle itself carries it.
   const [timerDraft, setTimerDraft] = useState(120);
   const [figures, setFigures] = useState(null);
+  // Which profile's skips are open underneath the figures. One at a time: the
+  // reasons are read against a profile, and two tables open at once is a
+  // screenful of somebody else's rows between you and the row you pressed.
+  const [openSkips, setOpenSkips] = useState(null);
 
   // Rebuilds happen on the server whether or not anyone is looking, so the
   // screen refreshes itself to stay honest about what the lists contain.
@@ -416,19 +421,48 @@ export default function AdminHome() {
                     </thead>
                     <tbody>
                       {figures.profiles.map((row) => (
-                        <tr key={row.id}>
-                          <td style={{ fontWeight: 500 }}>{row.name}</td>
-                          <td className="muted">{row.person || "—"}</td>
-                          <td className="num mono">{row.own_jobs}</td>
-                          <td className="num mono">{row.applied}</td>
-                          <td className="num mono">{row.skipped}</td>
-                          <td className="num mono">{row.left}</td>
-                          <td className="num mono"
-                              style={{ color: row.late ? "var(--bad-text)" : undefined }}>
-                            {row.late}
-                          </td>
-                          <td className="num mono">{row.done_pct}%</td>
-                        </tr>
+                        <React.Fragment key={row.id}>
+                          <tr>
+                            <td style={{ fontWeight: 500 }}>{row.name}</td>
+                            <td className="muted">{row.person || "—"}</td>
+                            <td className="num mono">{row.own_jobs}</td>
+                            <td className="num mono">{row.applied}</td>
+                            {/* The one figure on this table with a reason
+                                behind it. A manager reading "12 skipped" is
+                                being asked to judge somebody's week on a
+                                number; the words are one press away. */}
+                            <td className="num mono">
+                              {row.skipped ? (
+                                <button type="button" className="link"
+                                        aria-expanded={openSkips === row.id}
+                                        onClick={() => setOpenSkips(
+                                          (now) => (now === row.id ? null : row.id))}>
+                                  {row.skipped}
+                                </button>
+                              ) : row.skipped}
+                            </td>
+                            <td className="num mono">{row.left}</td>
+                            <td className="num mono"
+                                style={{ color: row.late ? "var(--bad-text)" : undefined }}>
+                              {row.late}
+                            </td>
+                            <td className="num mono">{row.done_pct}%</td>
+                          </tr>
+                          {openSkips === row.id && (
+                            <tr>
+                              <td colSpan={8} style={{ padding: "6px 10px 12px" }}>
+                                {/* The clock's own window, to the second.
+                                    The figure above counts what happened
+                                    inside it, and a list rounded out to whole
+                                    days would not add up to the number that
+                                    was pressed. */}
+                                <Skipped batchId={current} profileId={row.id}
+                                         since={figures.started_at}
+                                         until={figures.ends_at} />
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
                       ))}
                     </tbody>
                   </table>

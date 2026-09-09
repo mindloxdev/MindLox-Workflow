@@ -887,7 +887,7 @@ def for_developer(db: Session, person: User, batch: Optional[Batch],
             # a measurement of them, it is work they have been given.
             "assessments": assessments.summary(db, [p.id for p in profiles]),
             # A developer's half of the range report. The applications half is
-            # in it too and is honest — they are the applications sent under
+            # in it too and is honest — they are what was applied for under
             # this developer's identities — but their screen leads on the
             # interviews, because that is the half they were in the room for.
             "report": range_report(db, [p.id for p in profiles], date_from, date_to),

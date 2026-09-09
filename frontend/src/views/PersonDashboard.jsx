@@ -1,4 +1,5 @@
 import React from "react";
+import Skipped from "./Skipped.jsx";
 import {
   AssessmentBoard, BigFigures, CyclePicker, DateRange, DayByDay, Flow,
   InterviewRows, NextInterview, ProfileCard, RangeReport, StageLadder, Stalled,
@@ -30,6 +31,10 @@ export default function PersonDashboard({
   const next = diary?.today.find((row) => !row.is_past && row.status === "scheduled") || null;
   const tests = data.assessments;
   const rangeActive = !!(dateRange?.dateFrom || dateRange?.dateTo);
+  // The skipped figure opens into the reasons underneath it. Shut by default:
+  // most mornings the number is the whole of what somebody wants, and a table
+  // that is always open is a table nobody reads.
+  const [showSkipped, setShowSkipped] = React.useState(false);
 
   // Every label that names an owner, in one place. `whose` reads as "your" or
   // "Ali's"; `did` as "you found" or "Ali found".
@@ -75,7 +80,9 @@ export default function PersonDashboard({
 
       {/* Only when a range was asked for. The server returns null otherwise,
           so there is no default window inventing a figure. */}
-      <RangeReport report={data.report} whose={viewingAs || "your"} />
+      <RangeReport report={data.report} whose={viewingAs || "your"}
+                   skippedOpen={showSkipped}
+                   onOpenSkipped={() => setShowSkipped((on) => !on)} />
 
       {next && (
         <NextInterview row={next} onOpen={onOpenWork}
@@ -137,7 +144,10 @@ export default function PersonDashboard({
       <Tiles items={[
         { label: `others' jobs given to ${viewingAs || "you"}`, value: totals.assigned,
           hint: "Found by a colleague and handed over this cycle." },
-        { label: "skipped, with a reason", value: totals.skipped },
+        { label: "skipped, with a reason", value: totals.skipped,
+          hint: "Jobs turned down for this cycle. Press to read why.",
+          onClick: totals.skipped ? () => setShowSkipped((on) => !on) : undefined,
+          open: showSkipped },
         { label: "of that list worked through", value: `${totals.done_pct}%` },
         { label: `day${data.streak === 1 ? "" : "s"} in a row with jobs added`,
           value: data.streak,
@@ -153,6 +163,16 @@ export default function PersonDashboard({
             ? `${tests.counts.overdue} past the deadline` : undefined,
         } : null,
       ]} />
+
+      {showSkipped && totals.skipped > 0 && (
+        <section className="stack" style={{ gap: 8 }}>
+          <h3 style={{ margin: 0 }}>
+            Why {did("skipped")} {totals.skipped === 1 ? "it" : "them"}
+          </h3>
+          <Skipped batchId={batchId} dateFrom={dateRange?.dateFrom || ""}
+                   dateTo={dateRange?.dateTo || ""} showProfile={profiles.length > 1} />
+        </section>
+      )}
 
       {diary && (diary.counts.total > 0 || data.funnel.applications > 0) && (
         <section className="stack" style={{ gap: 10 }}>

@@ -94,7 +94,7 @@ def client_workbook(clients: list[dict], details: list[dict]) -> bytes:
 
     _write_sheet(
         book, "Clients",
-        ["Client", "Status", "Applications sent", "Own jobs", "Others' jobs",
+        ["Client", "Status", "Applied", "Own jobs", "Others' jobs",
          "Found twice", "Profiles", "BDs", "Developers", "Furthest round",
          "Open assessments", "Next in the diary", "First approached", "Last activity"],
         [[row["client"], row["status_label"], row["applications"], row["own_jobs"],

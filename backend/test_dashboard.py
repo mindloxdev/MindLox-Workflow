@@ -252,6 +252,106 @@ def test_the_team_row_and_the_persons_own_screen_agree(client, admin, dana, work
 
 
 # --------------------------------------------------------------------------- #
+# The skipped count, opened
+#
+# A skip is the one decision on a BD's screen that destroys work, and the count
+# of them used to be a number nobody could open.
+# --------------------------------------------------------------------------- #
+
+def _skip(client, headers, batch_id, profile_id, index, reason):
+    """Turn down the nth job on a profile's list, in the BD's own words."""
+    jobs = client.get(f"/api/batches/{batch_id}/profiles/{profile_id}/sheet",
+                      headers=headers).json()["jobs"]
+    response = client.patch(f"/api/assignments/{jobs[index]['id']}",
+                            json={"status": "skipped", "reason": reason}, headers=headers)
+    assert response.status_code == 200, response.text
+
+
+def test_the_skipped_list_says_why_each_one_went(client, admin, dana, worked_cycle):
+    first = worked_cycle["first"]
+    batch_id = worked_cycle["batch_id"]
+    _skip(client, dana, batch_id, first["id"], 0, "Rate is far too low.")
+    _skip(client, dana, batch_id, first["id"], 0, "On-site only, and they will not move.")
+
+    data = client.get(f"/api/batches/{batch_id}/skipped?profile_id={first['id']}",
+                      headers=dana).json()
+    assert data["total"] == 2
+    reasons = {row["reason"] for row in data["rows"]}
+    assert reasons == {"Rate is far too low.", "On-site only, and they will not move."}
+    for row in data["rows"]:
+        assert row["profile"] == first["name"]
+        assert row["title"], "a row with no job on it is not worth showing"
+
+
+def test_the_list_adds_up_to_the_count_that_opens_it(client, admin, dana, worked_cycle):
+    """A list that quietly showed something other than the figure pressed would
+    be worse than no list at all."""
+    first = worked_cycle["first"]
+    batch_id = worked_cycle["batch_id"]
+    _skip(client, dana, batch_id, first["id"], 0, "Wrong seniority.")
+
+    counted = client.get(f"/api/dashboard/profiles/{first['id']}?batch_id={batch_id}",
+                         headers=dana).json()["stats"]["skipped"]
+    listed = client.get(f"/api/batches/{batch_id}/skipped?profile_id={first['id']}",
+                        headers=dana).json()["total"]
+    assert listed == counted
+
+
+def test_a_bd_sees_their_own_skips_and_nobody_elses(client, admin, dana, devtwo,
+                                                    worked_cycle):
+    first, second = worked_cycle["first"], worked_cycle["second"]
+    batch_id = worked_cycle["batch_id"]
+    _skip(client, dana, batch_id, first["id"], 0, "Not for this one.")
+    _skip(client, devtwo, batch_id, second["id"], 0, "Client already being worked.")
+
+    mine = client.get(f"/api/batches/{batch_id}/skipped", headers=dana).json()
+    assert mine["total"] > 0
+    assert {row["profile"] for row in mine["rows"]} == {first["name"]}
+
+    denied = client.get(f"/api/batches/{batch_id}/skipped?profile_id={second['id']}",
+                        headers=dana)
+    assert denied.status_code == 403
+
+
+def test_the_manager_sees_everybodys(client, admin, dana, devtwo, worked_cycle):
+    first, second = worked_cycle["first"], worked_cycle["second"]
+    batch_id = worked_cycle["batch_id"]
+    _skip(client, dana, batch_id, first["id"], 0, "Wrong market.")
+    _skip(client, devtwo, batch_id, second["id"], 0, "Rate too low.")
+
+    everyone = client.get(f"/api/batches/{batch_id}/skipped", headers=admin).json()
+    names = {row["profile"] for row in everyone["rows"]}
+    assert {first["name"], second["name"]} <= names
+    assert all(row["person"] for row in everyone["rows"]), "who runs the profile, on the row"
+
+
+def test_an_exact_window_narrows_the_list_to_it(client, admin, dana, worked_cycle):
+    """The cycle clock counts an exact window, not whole days, and the list it
+    opens has to say the same thing the figure did."""
+    import datetime as dt
+    first = worked_cycle["first"]
+    batch_id = worked_cycle["batch_id"]
+    _skip(client, dana, batch_id, first["id"], 0, "Before the clock started.")
+
+    started = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+    _skip(client, dana, batch_id, first["id"], 0, "Inside the window.")
+
+    inside = client.get(
+        f"/api/batches/{batch_id}/skipped?profile_id={first['id']}"
+        f"&since={started.isoformat()}"
+        f"&until={(started + dt.timedelta(hours=2)).isoformat()}", headers=dana).json()
+    assert [row["reason"] for row in inside["rows"]] == ["Inside the window."]
+
+    whole = client.get(f"/api/batches/{batch_id}/skipped?profile_id={first['id']}",
+                       headers=dana).json()
+    assert whole["total"] > inside["total"], "the cycle holds more than the window"
+
+
+def test_the_skipped_list_needs_a_sign_in(client, worked_cycle):
+    assert client.get(f"/api/batches/{worked_cycle['batch_id']}/skipped").status_code == 401
+
+
+# --------------------------------------------------------------------------- #
 # A BD's own dashboard
 # --------------------------------------------------------------------------- #
 

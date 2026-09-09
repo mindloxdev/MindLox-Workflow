@@ -1984,6 +1984,88 @@ def _all_assignment_rows(db: Session, batch_id: int) -> dict[int, list[dict]]:
     return grouped
 
 
+# One screenful and then some. A profile with three hundred skips has a problem
+# with the searches feeding it, not a reading problem, and the count above the
+# list already says how many there are.
+SKIPPED_PAGE = 200
+
+
+@app.get("/api/batches/{batch_id}/skipped")
+def skipped_jobs(batch_id: int, profile_id: Optional[int] = None,
+                 date_from: Optional[dt.date] = None, date_to: Optional[dt.date] = None,
+                 since: Optional[dt.datetime] = None, until: Optional[dt.datetime] = None,
+                 db: Session = Depends(get_db), user: User = Depends(current_user)):
+    """What was skipped in this cycle, and why.
+
+    A skip is the one decision on a BD's screen that destroys work — the job
+    leaves that profile and no later cycle offers it again — and until now the
+    reason lived only on the manager's cycle report. So a count of skips was a
+    number nobody could open: a BD could not check their own reasoning back, and
+    a manager reading "47 skipped" on somebody's row had to go and find another
+    screen to learn whether that was a profile being protected or a week of good
+    postings thrown away.
+
+    Scoped the way the count beside it is scoped, or the list would not add up
+    to the number that opened it: dated by when the row was marked, and narrowed
+    to one profile when one is asked for. A BD sees the profiles they run and a
+    manager sees everybody, which is the same rule as every other screen here.
+
+    Two ways to say when, because two kinds of figure open this list. The
+    dashboards count whole days, so they send `date_from`/`date_to`. The cycle
+    clock counts an exact window — two hours from the moment a manager set it —
+    and a list rounded out to whole days under a figure counting one afternoon
+    would be the very mismatch this is meant to avoid, so it sends
+    `since`/`until` instead.
+    """
+    batch = db.get(Batch, batch_id)
+    if not batch:
+        raise HTTPException(404, "No such cycle.")
+
+    allowed = visible_profile_ids(db, user)
+    if profile_id is not None:
+        linked_profile(profile_id, db, user)
+        if allowed is not None and profile_id not in allowed:
+            raise HTTPException(403, "That profile belongs to someone else.")
+        allowed = [profile_id]
+    if allowed is not None and not allowed:
+        return {"batch_id": batch_id, "rows": [], "total": 0}
+
+    query = (select(Assignment, Job, Profile)
+             .join(Job, Job.id == Assignment.job_id)
+             .join(Profile, Profile.id == Assignment.profile_id)
+             .where(Assignment.batch_id == batch_id, Assignment.status == "skipped"))
+    if allowed is not None:
+        query = query.where(Assignment.profile_id.in_(allowed))
+
+    # The same clock the figures use, so the list and the count agree.
+    marked = func.coalesce(Assignment.status_changed_at, Assignment.created_at)
+    if date_from:
+        query = query.where(marked >= dt.datetime.combine(date_from, dt.time.min))
+    if date_to:
+        query = query.where(marked < dt.datetime.combine(date_to + dt.timedelta(days=1),
+                                                         dt.time.min))
+    if since:
+        query = query.where(marked >= _naive_utc(since))
+    if until:
+        query = query.where(marked <= _naive_utc(until))
+
+    owners = {u.id: u.name for u in db.scalars(select(User)).all()}
+    rows = [
+        {"id": a.id, "job_id": j.id,
+         "title": j.title or "", "company": j.company or "",
+         "platform": j.platform or "", "url": j.url or "",
+         "profile_id": p.id, "profile": p.name,
+         "person": owners.get(p.user_id) or "",
+         # Said in the BD's own words. Empty only on rows skipped before the
+         # reason was asked for, and said so rather than left blank.
+         "reason": a.skip_reason or "",
+         "when": working_label(a.status_changed_at)["label"] if a.status_changed_at else ""}
+        for a, j, p in db.execute(
+            query.order_by(Assignment.status_changed_at.desc().nullslast())).all()
+    ]
+    return {"batch_id": batch_id, "rows": rows[:SKIPPED_PAGE], "total": len(rows)}
+
+
 @app.get("/api/batches/{batch_id}/my-sheets")
 def my_sheets(batch_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """Every profile this person runs, each with its own list."""

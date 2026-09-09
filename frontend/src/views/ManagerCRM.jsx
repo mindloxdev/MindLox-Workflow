@@ -24,7 +24,7 @@ const SORTS = [
   { key: "last_activity", label: "Last activity" },
   { key: "client", label: "Client" },
   { key: "status", label: "Status" },
-  { key: "applications", label: "Applications sent" },
+  { key: "applications", label: "Applied" },
   { key: "found_twice", label: "Found twice" },
   { key: "open_tests", label: "Open assessments" },
   { key: "next_up", label: "Next in the diary" },
@@ -149,7 +149,7 @@ function Drawer({ clientKey, onClose }) {
           First approached {dayLabel(client.first_seen)} · last activity{" "}
           {dayLabel(client.last_activity)} ·{" "}
           <b>{client.applications}</b> {plural(client.applications,
-            "application sent", "applications sent")}
+            "application", "applications")}
           {client.applications > 0 && <> ({client.own_jobs} own jobs,{" "}
             {client.others_jobs} others&apos; jobs)</>}
         </p>
@@ -410,7 +410,7 @@ export default function ManagerCRM() {
             Everything already recorded, grouped by the company instead of by the
             person who typed it. <b>{totals.clients}</b>{" "}
             {plural(totals.clients, "client", "clients")},{" "}
-            <b>{totals.applications}</b> applications sent between them. Nothing
+            <b>{totals.applications}</b> applied between them. Nothing
             here books, reschedules or settles anything.
           </p>
         </div>
@@ -523,7 +523,7 @@ export default function ManagerCRM() {
               <thead>
                 <tr>
                   <th>Client</th><th>Status</th>
-                  <th className="num">Applications sent</th>
+                  <th className="num">Applied</th>
                   <th className="num">Own jobs</th>
                   <th className="num">Others&apos; jobs</th>
                   <th className="num">Found twice</th>
@@ -578,7 +578,7 @@ export default function ManagerCRM() {
         )}
 
         <p className="hint" style={{ maxWidth: 760 }}>
-          <b>Applications sent</b> is everything applied for at this client, and
+          <b>Applied</b> is everything applied for at this client, and
           the two columns after it are that same number split — <b>own jobs</b> are
           the ones somebody went out and found, <b>others&apos; jobs</b> are the ones
           a colleague found and handed over. <b>Found twice</b> counts postings,

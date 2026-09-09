@@ -299,7 +299,7 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
             : "Everything that has happened has been reported on. Nothing is owed.",
           tone: counts.awaiting_outcome ? "bad" : undefined },
         { key: "apps", scope: "all time", value: funnel.applications,
-          label: "applications sent in your name",
+          label: "applied in your name",
           body: `Your team's work, not your score. ${funnel.interview_rate}% of them `
               + "got a client talking.",
         },
@@ -424,7 +424,7 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
       </section>
 
       <section>
-        <h3>Applications sent in your name, day by day</h3>
+        <h3>Applied in your name, day by day</h3>
         <p className="hint" style={{ margin: "3px 0 9px", maxWidth: 640 }}>
           The last thirty days, Eastern time. This is a picture of your team working,
           not of you — nobody is measured on it.

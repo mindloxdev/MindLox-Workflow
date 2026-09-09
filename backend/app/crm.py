@@ -291,7 +291,7 @@ def _rows(db: Session, date_from: Optional[dt.date],
             "client": data["names"].get(key) or key,
             "status": status,
             "status_label": STATUS_LABELS[status],
-            # Applications sent, split the way every other screen splits it:
+            # Applied, split the way every other screen splits it:
             # what these profiles found themselves, and what a colleague found
             # and handed over. The two add up to the total, always.
             "applications": len(postings),

@@ -180,7 +180,7 @@ function ProfileDetail({ profileId, batchId, dateRange, onClose }) {
           hint: "Handed over off a colleague's sheet." },
         { label: "applied", value: stats.applied, tone: "pine" },
         { label: "still to do", value: stats.pending },
-        { label: "applications sent, all time", value: stats.all_time },
+        { label: "applied, all time", value: stats.all_time },
       ]} />
 
       <RangeReport report={data.report} whose={profile.name} />

@@ -394,6 +394,35 @@ a:hover { color: var(--ink); border-bottom-color: currentColor; }
 .stat span { font-size: var(--t-xs); color: var(--slate); }
 .stat .foot { display: block; font-size: 10px; color: var(--faint); margin-top: 2px; }
 
+/* A figure with something behind it. Rendered as a real button so the keyboard
+   reaches it, then stripped back to look like the tiles beside it — the only
+   standing difference is the cursor and the small prompt underneath, which is
+   what says this one opens. */
+button.stat.is-open {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  cursor: pointer;
+}
+button.stat.is-open:hover:not(:disabled) {
+  background: var(--sunk);
+  transform: none;
+  box-shadow: none;
+}
+button.stat.is-open:focus-visible { outline: 2px solid var(--a); outline-offset: -2px; }
+.stat-more {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--a-text);
+}
+
 .headline { align-items: center; }
 .headline > div:first-child { display: flex; gap: var(--s4); align-items: center; }
 .headline-figure {
