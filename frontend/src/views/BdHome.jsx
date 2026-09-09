@@ -5,7 +5,9 @@ import EntryTable from "./EntryTable.jsx";
 import Interviews from "./Interviews.jsx";
 import JobRecord from "./JobRecord.jsx";
 import { ActionList, bdTodo } from "./Todo.jsx";
-import { Availability, CopyButton, CycleClock, CyclePicker, Empty, Segment, Skills } from "./widgets.jsx";
+import {
+  Availability, CopyButton, CycleClock, CyclePicker, Empty, Segment, Skills, useModalFocus,
+} from "./widgets.jsx";
 
 const FIELD_LABELS = {
   url: "Job link",
@@ -50,6 +52,10 @@ export default function BdHome({ pane = null, onPaneSeen }) {
   // would quietly retire postings from a market nobody meant to close.
   const [skipEverywhere, setSkipEverywhere] = useState(false);
   const fileInput = useRef(null);
+  // The skip dialog asks a question that retires a job for good, so the
+  // keyboard stays inside it until it is answered or dismissed.
+  const skipBox = useRef(null);
+  useModalFocus(!!skipping, skipBox);
 
   const batch = useMemo(
     () => batches.find((b) => b.id === batchId) || null,
@@ -259,7 +265,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
   return (
     <div className="stack">
       {skipping && (
-        <div className="card pad stack" role="alertdialog" aria-modal="true"
+        <div className="card pad stack" ref={skipBox} role="alertdialog" aria-modal="true"
              style={{ gap: 10, borderLeft: "3px solid var(--brick)" }}>
           <div>
             <b style={{ fontFamily: "var(--display)" }}>Why are you skipping this one?</b>
@@ -668,7 +674,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                       Nothing on this list matches “{filter}”. Try a colleague's name, a client, or a platform.
                     </div>
                   ) : (
-                  <div className="card scroll">
+                  <div className="card scroll stacks">
                     <table>
                       <thead>
                         <tr>
@@ -679,7 +685,10 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                       <tbody>
                         {visible.map((job) => (
                           <tr key={job.id}>
-                            <td className="truncate">
+                            {/* The row's subject: on a phone this is the
+                                card's heading rather than another labelled
+                                field, which is why it carries no label. */}
+                            <td className="truncate" data-label="">
                               {job.title || "—"}
                               {/* The answer to "I am sure I rejected this".
                                   They did — under a different name. */}
@@ -691,8 +700,8 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                                 </div>
                               )}
                             </td>
-                            <td>{job.company || "—"}</td>
-                            <td>
+                            <td data-label="Company">{job.company || "—"}</td>
+                            <td data-label="Found by">
                               {/* Each name filters the list to that sourcer.
                                   Reading "found by Faizan" on one row is
                                   useful; seeing the whole run of them together
@@ -715,19 +724,20 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                                 </span>
                               ) : <span className="muted">—</span>}
                             </td>
-                            <td className="muted">{job.platform || "—"}</td>
+                            <td className="muted" data-label="Platform">{job.platform || "—"}</td>
                             {/* When the posting was found, not when this
                                 profile applied — it has not, which is why the
                                 row is here. Reading a job as three days old or
                                 three weeks old is what decides whether the
                                 link is still worth opening. */}
-                            <td className="mono muted" style={{ whiteSpace: "nowrap", fontSize: 12 }}
+                            <td className="mono muted" data-label="Found on"
+                                style={{ whiteSpace: "nowrap", fontSize: 12 }}
                                 title={job.found_by?.length
                                   ? `When ${job.found_by.join(", ")} applied to it`
                                   : "When this posting first came into the system"}>
                               {job.found_on || "—"}
                             </td>
-                            <td>
+                            <td data-label="Link">
                               {/* The link itself, not the word "open" over the top of it.
                                   A BD decides whether a posting is worth their time from
                                   the host and the slug as often as from the title. */}
@@ -746,8 +756,8 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                                 </a>
                               )}
                             </td>
-                            <td>
-                              <select value={job.status}
+                            <td data-label="">
+                              <select value={job.status} aria-label={`Status of ${job.title || "this job"}`}
                                       onChange={(e) => chooseStatus(job, e.target.value)}>
                                 <option value="pending">to do</option>
                                 <option value="applied">applied</option>

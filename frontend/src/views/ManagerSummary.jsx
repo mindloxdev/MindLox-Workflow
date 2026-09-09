@@ -357,7 +357,7 @@ function PersonRow({ person, onOpen, onToggle, busy }) {
   return (
     <>
       <tr>
-        <td>
+        <td data-label="">
           <button className="link" onClick={() => onOpen(person)}
                   title={`Open ${person.name}'s screen`}>
             <b>{person.name}</b>
@@ -377,16 +377,16 @@ function PersonRow({ person, onOpen, onToggle, busy }) {
             )}
           </div>
         </td>
-        <td className="mono num"><b>{num(sent)}</b></td>
-        <td>
+        <td className="mono num" data-label="Applied this cycle"><b>{num(sent)}</b></td>
+        <td data-label="Their list">
           <ListBar applied={person.applied} skipped={person.skipped}
                    pending={person.pending} />
           <span className="muted mono" style={{ fontSize: 11 }}>
             {person.assigned ? `${person.done_pct}% done` : "nothing handed over"}
           </span>
         </td>
-        <td className="muted">{sinceText(person.last_logged)}</td>
-        <td style={{ textAlign: "right" }}>
+        <td className="muted" data-label="Last worked">{sinceText(person.last_logged)}</td>
+        <td data-label="" style={{ textAlign: "right" }}>
           <button type="button" className="row-more" aria-expanded={open}
                   aria-controls={id}
                   aria-label={`${open ? "Hide" : "Show"} the rest of ${person.name}'s figures`}
@@ -452,7 +452,7 @@ export function PeopleTable({ people, onOpen, onToggle, busy }) {
 
   return (
     <div className="stack" style={{ gap: 8 }}>
-      <div className="card scroll">
+      <div className="card scroll stacks">
         <table className="board">
           <thead>
             <tr>

@@ -65,6 +65,84 @@ export function sinceText(iso) {
   return then.toLocaleDateString();
 }
 
+/** Hold the keyboard inside an open dialog, and hand it back on the way out.
+ *
+ * `aria-modal` is a promise to a screen reader, not a behaviour: without this,
+ * Tab walks straight out of the dialog and into the page underneath, which is
+ * still there and still clickable as far as the keyboard is concerned. Somebody
+ * tabbing through a skip reason ends up in the job list behind it with no way
+ * of knowing they have left.
+ *
+ * Three things, which is all a trap is: focus the first thing worth focusing,
+ * wrap Tab and Shift-Tab at the ends, and put focus back on whatever opened the
+ * dialog when it closes — otherwise the next Tab starts again from the top of
+ * the document.
+ *
+ * Escape is left to the caller. Some dialogs close on it and some ask first,
+ * and a hook that decided would be deciding something it cannot see.
+ */
+export function useModalFocus(open, ref) {
+  const cameFrom = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!open) return undefined;
+
+    // Where to hand the keyboard back to. Read once, on the way in, and only
+    // kept if it is outside every dialog: React applies `autoFocus` in the same
+    // commit that mounts the dialog, so on a dialog with an autofocused field
+    // this already reads as that field — a node about to be removed, and the
+    // worst possible thing to "restore" to.
+    //
+    // When it cannot tell, it restores nothing. Leaving focus where the browser
+    // puts it is a small loss; moving it somewhere wrong is a real one.
+    const opener = document.activeElement;
+    cameFrom.current = (opener && opener !== document.body
+      && !opener.closest('[role="dialog"], [role="alertdialog"]')) ? opener : null;
+
+    const box = ref.current;
+    const reachable = () => (box
+      ? [...box.querySelectorAll(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]),'
+          + ' textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+        .filter((el) => el.offsetParent !== null || el === document.activeElement)
+      : []);
+
+    // Only if nothing inside has already claimed it — several of these dialogs
+    // autofocus the field somebody came to type in, and that is a better answer
+    // than the first button.
+    if (box && !box.contains(document.activeElement)) reachable()[0]?.focus();
+
+    const onKey = (e) => {
+      if (e.key !== "Tab" || !box) return;
+      const stops = reachable();
+      if (!stops.length) return;
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      const back = cameFrom.current;
+      if (!back) return;
+      // Next frame: this runs while React is still committing the dialog away,
+      // and focus set now is dropped as the focused node inside it goes.
+      requestAnimationFrame(() => {
+        const loose = document.activeElement;
+        const idle = !loose || loose === document.body || !document.contains(loose);
+        if (document.contains(back) && idle) back.focus();
+      });
+    };
+  }, [open, ref]);
+}
+
 /** The sub-tabs inside a screen, as one control rather than a row of buttons.
  *
  * Five loose buttons read as five unrelated actions; a segmented control reads
@@ -777,7 +855,7 @@ export function CycleClock({ batch, label = "Time left on this cycle" }) {
 export function TeamBoard({ rows, onOpen, highlight = [] }) {
   const mine = new Set(highlight);
   return (
-    <div className="card scroll">
+    <div className="card scroll stacks">
       <table className="board">
         <thead>
           <tr>
@@ -804,24 +882,38 @@ export function TeamBoard({ rows, onOpen, highlight = [] }) {
                 className={mine.has(row.profile_id) ? "is-mine" : undefined}
                 style={onOpen ? { cursor: "pointer" } : undefined}
                 onClick={onOpen ? () => onOpen(row.profile_id) : undefined}>
-              <td className="mono muted num">{row.rank ?? "—"}</td>
-              <td>
-                <b>{row.name}</b>
+              <td className="mono muted num" data-label="#">{row.rank ?? "—"}</td>
+              <td data-label="">
+                {/* The name is the target, not the whole row. A `tr` with an
+                    onClick is a click area the keyboard cannot reach and a
+                    screen reader does not announce, and on a row carrying eight
+                    other figures it is not obvious what pressing it would do.
+                    The row keeps the click for the mouse — it runs the same
+                    single action — but the name is what can be tabbed to and
+                    what says out loud where it goes. */}
+                {onOpen ? (
+                  <button type="button" className="link"
+                          onClick={(e) => { e.stopPropagation(); onOpen(row.profile_id); }}
+                          title={`Open ${row.name}`}>
+                    <b>{row.name}</b>
+                  </button>
+                ) : <b>{row.name}</b>}
                 {row.headline && <span className="muted"> · {row.headline}</span>}
                 {row.shared === false && <span className="pill off" style={{ marginLeft: 6 }}>off the board</span>}
               </td>
-              <td className="muted">{row.person || "nobody"}</td>
-              <td className="mono num">{row.logged}</td>
-              <td className="mono num" style={{ color: row.duplicates ? "var(--brick)" : undefined }}>
+              <td className="muted" data-label="Run by">{row.person || "nobody"}</td>
+              <td className="mono num" data-label="Own jobs">{row.logged}</td>
+              <td className="mono num" data-label="Found twice"
+                  style={{ color: row.duplicates ? "var(--brick)" : undefined }}>
                 {row.duplicates}
               </td>
-              <td className="mono num">{row.assigned}</td>
-              <td className="mono num"><b>{row.applied}</b></td>
-              <td>
+              <td className="mono num" data-label="Others' jobs given">{row.assigned}</td>
+              <td className="mono num" data-label="Applied"><b>{row.applied}</b></td>
+              <td data-label="Worked through">
                 <Progress applied={row.applied} skipped={row.skipped} pending={row.pending} />
                 <span className="muted mono" style={{ fontSize: 11 }}>{row.done_pct}%</span>
               </td>
-              <td className="muted">{sinceText(row.last_logged)}</td>
+              <td className="muted" data-label="Last worked">{sinceText(row.last_logged)}</td>
             </tr>
           ))}
           {!rows.length && (
@@ -1271,7 +1363,7 @@ export function InterviewRows({ rows, showProfile = true, onChange, onRemove,
   if (!rows?.length) return <div className="card pad muted">{empty}</div>;
   const columns = showProfile ? 8 : 7;
   return (
-    <div className="card scroll">
+    <div className="card scroll stacks">
       <table className="board">
         <thead>
           <tr>
@@ -1289,22 +1381,22 @@ export function InterviewRows({ rows, showProfile = true, onChange, onRemove,
           {rows.map((row) => (
             <React.Fragment key={row.id}>
               <tr style={{ opacity: row.status === "cancelled" ? 0.5 : 1 }}>
-                <td>
+                <td data-label="">
                   <b className="mono">{row.when.time}</b>
                   <div className="muted" style={{ fontSize: 11 }}>
                     {row.when.label.split(" · ")[0]}
                   </div>
                 </td>
                 {showProfile && (
-                  <td>
+                  <td data-label="Applied as">
                     <b>{row.profile}</b>
                     {row.developer && (
                       <div className="muted" style={{ fontSize: 11 }}>{row.developer}</div>
                     )}
                   </td>
                 )}
-                <td>{row.client || <span className="muted">—</span>}</td>
-                <td style={{ maxWidth: 280 }}>
+                <td data-label="Company">{row.client || <span className="muted">—</span>}</td>
+                <td data-label="Role" style={{ maxWidth: 280 }}>
                   <div className="truncate">
                     {row.role || <span className="muted">—</span>}
                   </div>
@@ -1315,11 +1407,11 @@ export function InterviewRows({ rows, showProfile = true, onChange, onRemove,
                   <JobDetail job={row.job} />
                   <AssessmentChips rows={row.assessments} />
                 </td>
-                <td className="muted">
+                <td className="muted" data-label="How">
                   {MODE_LABELS[row.mode] || row.mode}
                   <div style={{ fontSize: 11 }}>{row.duration_minutes} min</div>
                 </td>
-                <td>
+                <td data-label="Round">
                   {onChange ? (
                     <select value={row.stage || "screening"}
                             onChange={(e) => onChange(row.id, { stage: e.target.value })}>
@@ -1334,7 +1426,7 @@ export function InterviewRows({ rows, showProfile = true, onChange, onRemove,
                   )}
                   <div><Round row={row} /></div>
                 </td>
-                <td>
+                <td data-label="How it went">
                   {onChange ? (
                     <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
                       <select value={row.status}

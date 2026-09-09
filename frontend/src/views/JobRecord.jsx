@@ -226,7 +226,7 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
         </div>
       ) : (
         <>
-          <div className="card scroll">
+          <div className="card scroll stacks">
             <table className="board">
               <thead>
                 <tr>
@@ -244,19 +244,19 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
                 {data.rows.map((row, index) => (
                   <React.Fragment key={`${row.job_id}-${row.profile_id}`}>
                     <tr>
-                      <td className="mono muted" style={{ textAlign: "right" }}>
+                      <td className="mono muted" data-label="#" style={{ textAlign: "right" }}>
                         {page * PAGE + index + 1}
                       </td>
-                      <td className="truncate" style={{ maxWidth: 320 }}>
+                      <td className="truncate" data-label="" style={{ maxWidth: 320 }}>
                         {row.title || <span className="muted">no title recorded</span>}
                       </td>
-                      <td>{row.company || <span className="muted">—</span>}</td>
-                      <td><b>{row.profile}</b></td>
-                      <td className="muted">{row.platform || "—"}</td>
-                      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                      <td data-label="Company">{row.company || <span className="muted">—</span>}</td>
+                      <td data-label="Applied as"><b>{row.profile}</b></td>
+                      <td className="muted" data-label="Platform">{row.platform || "—"}</td>
+                      <td className="muted" data-label="When" style={{ whiteSpace: "nowrap" }}>
                         {row.applied_on || row.logged || "—"}
                       </td>
-                      <td style={{ whiteSpace: "nowrap" }}>
+                      <td data-label="Links" style={{ whiteSpace: "nowrap" }}>
                         {safeUrl(row.url)
                           ? <a href={safeUrl(row.url)} target="_blank" rel="noreferrer noopener"
                                title={row.url}>apply</a>
@@ -268,7 +268,7 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
                           </a></>
                         )}
                       </td>
-                      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      <td data-label="" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                         <button className="link"
                                 onClick={() => {
                                   setEmailUrl("");

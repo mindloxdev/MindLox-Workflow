@@ -1,6 +1,7 @@
 import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from "react";
+import { useModalFocus } from "./widgets.jsx";
 
 /** The parts of the app that are not a screen: toasts, the command palette,
  *  and the theme.
@@ -107,6 +108,7 @@ export function CommandPalette({ commands }) {
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const field = useRef(null);
+  const box = useRef(null);
 
   const found = useMemo(
     () => commands.filter((c) => matches(query, `${c.label} ${c.where || ""}`)),
@@ -130,6 +132,8 @@ export function CommandPalette({ commands }) {
   useEffect(() => {
     if (open) field.current?.focus();
   }, [open]);
+
+  useModalFocus(open, box);
 
   useEffect(() => { setCursor(0); }, [query]);
 
@@ -155,7 +159,8 @@ export function CommandPalette({ commands }) {
 
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
-      <div className="palette" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div className="palette" ref={box} role="dialog" aria-modal="true"
+           aria-label="Command palette">
         <input ref={field} value={query} placeholder="Go to…"
                onChange={(e) => setQuery(e.target.value)} onKeyDown={onKeyDown} />
         {found.length === 0 ? (

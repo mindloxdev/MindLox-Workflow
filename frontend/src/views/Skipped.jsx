@@ -54,7 +54,7 @@ export default function Skipped({ batchId, profileId = null, dateFrom = "", date
 
   return (
     <div className="stack" style={{ gap: 6 }}>
-      <div className="card scroll">
+      <div className="card scroll stacks">
         <table>
           <thead>
             <tr>
@@ -68,27 +68,28 @@ export default function Skipped({ batchId, profileId = null, dateFrom = "", date
           <tbody>
             {data.rows.map((row) => (
               <tr key={row.id}>
-                <td className="truncate" style={{ maxWidth: 260 }}>
+                <td className="truncate" data-label="" style={{ maxWidth: 260 }}>
                   {safeUrl(row.url)
                     ? <a href={safeUrl(row.url)} target="_blank" rel="noreferrer noopener">
                         {row.title || row.url}
                       </a>
                     : (row.title || "—")}
                 </td>
-                <td>{row.company || "—"}</td>
+                <td data-label="Company">{row.company || "—"}</td>
                 {showProfile && (
-                  <td>
+                  <td data-label="Applied as">
                     <b>{row.profile}</b>
                     {row.person && <span className="muted"> · {row.person}</span>}
                   </td>
                 )}
-                <td style={{ maxWidth: 340 }}>
+                <td data-label="Why it was skipped" style={{ maxWidth: 340 }}>
                   {/* Said out loud rather than left blank. A row with no reason
                       is one skipped before the app asked for one, and that is a
                       different thing from a reason nobody could think of. */}
                   {row.reason || <span className="muted">no reason recorded</span>}
                 </td>
-                <td className="muted" style={{ whiteSpace: "nowrap" }}>{row.when || "—"}</td>
+                <td className="muted" data-label="When"
+                    style={{ whiteSpace: "nowrap" }}>{row.when || "—"}</td>
               </tr>
             ))}
           </tbody>

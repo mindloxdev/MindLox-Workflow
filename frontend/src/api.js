@@ -24,17 +24,40 @@ export function setToken(value) {
   else sessionStorage.removeItem(KEY);
 }
 
+/** What to say when the server does not say anything itself. */
+const FALLBACKS = {
+  403: "You do not have access to that. If you think you should, ask your manager.",
+  404: "That is not there any more. It may have been deleted or moved to another cycle.",
+  409: "Somebody changed this while you were working on it. Reload and try again.",
+  413: "That file is too big to upload.",
+  429: "Too many requests at once. Wait a moment and try again.",
+  500: "Something went wrong at our end. Nothing you were doing was lost — try again.",
+  502: "The server is restarting. Try again in a moment.",
+  503: "The server is restarting. Try again in a moment.",
+  504: "That took too long and gave up. Try again.",
+  other: "That did not work. Try again, and tell your manager if it keeps happening.",
+};
+
 async function request(path, { method = "GET", body, form } = {}) {
   const headers = {};
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body) headers["Content-Type"] = "application/json";
 
-  const response = await fetch(`/api${path}`, {
-    method,
-    headers,
-    body: form ? form : body ? JSON.stringify(body) : undefined,
-  });
+  let response;
+  try {
+    response = await fetch(`/api${path}`, {
+      method,
+      headers,
+      body: form ? form : body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    // A dropped connection throws `TypeError: Failed to fetch`, which is true
+    // and useless. Nothing was sent, so nothing was lost — say that, because
+    // the question somebody actually has is whether to type it all again.
+    throw new Error("Could not reach the server. Nothing was saved. "
+                    + "Check your connection and try again.");
+  }
 
   if (response.status === 401) {
     setToken("");
@@ -42,10 +65,17 @@ async function request(path, { method = "GET", body, form } = {}) {
     throw new Error("Your session ended. Sign in again.");
   }
   if (!response.ok) {
-    let message = `Request failed (${response.status})`;
+    // The server's own sentence wherever there is one — the API writes them for
+    // people ("Say why you are skipping this one."), and it knows what went
+    // wrong far better than a status code does.
+    //
+    // The fallbacks are what is left when it does not, and they say what a
+    // person can do rather than what the protocol returned. "Request failed
+    // (500)" is a fact about HTTP, not an answer to "is my work gone".
+    let message = FALLBACKS[response.status] || FALLBACKS.other;
     try {
       const data = await response.json();
-      if (data.detail) message = typeof data.detail === "string" ? data.detail : message;
+      if (data.detail && typeof data.detail === "string") message = data.detail;
     } catch {
       /* response had no JSON body */
     }

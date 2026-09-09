@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api, deletedLabel } from "../api.js";
-import { Loading } from "./widgets.jsx";
+import { Loading, useModalFocus } from "./widgets.jsx";
 import { useToast } from "./shell.jsx";
 
 const PLATFORM_OPTIONS = [
@@ -465,15 +465,20 @@ function DuplicateDialog({ info, profileName, onIgnore, onRemove }) {
 
   useEffect(() => { keep.current?.focus(); }, []);
 
+  const box = useRef(null);
   const onKeyDown = (event) => {
     if (event.key === "Escape") { event.preventDefault(); onIgnore(); }
     if (event.key === "Enter") { event.preventDefault(); onIgnore(); }
   };
 
+  // Tab stays in the dialog while it is up, and goes back to the cell that
+  // raised it when it closes.
+  useModalFocus(true, box);
+
   return (
     <div className="scrim" onKeyDown={onKeyDown}
          onMouseDown={(e) => e.target === e.currentTarget && onIgnore()}>
-      <div className="palette" role="alertdialog" aria-modal="true"
+      <div className="palette" ref={box} role="alertdialog" aria-modal="true"
            aria-label={headline}
            style={{ padding: "var(--s5)", gap: 12, maxHeight: "none" }}>
         <div className="stack" style={{ gap: 10 }}>
