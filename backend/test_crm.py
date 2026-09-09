@@ -460,5 +460,5 @@ def test_the_export_carries_three_sheets(client, admin):
     response = client.get("/api/crm/export.xlsx", headers=admin)
     assert response.status_code == 200, response.text
     book = load_workbook(io.BytesIO(response.content))
-    assert book.sheetnames == ["Clients", "Conversations", "Tests"]
+    assert book.sheetnames == ["Clients", "Conversations", "Assessments"]
     assert "Client email" in [c.value for c in book["Conversations"][1]]

@@ -113,12 +113,12 @@ export default function PersonDashboard({
       <BigFigures items={[
         { key: "sent", scope: "this cycle",
           value: totals.own_found + totals.from_others,
-          label: "applications sent",
+          label: "applied this cycle",
           body: `Everything ${viewingAs || "you"} applied for this cycle, whether `
               + "it was found here or handed over by a colleague.",
           tone: "good" },
         { key: "shared", scope: "this cycle", value: totals.from_others,
-          label: "of those, others' jobs",
+          label: "others' jobs",
           body: "Work that came off somebody else's sheet. This is the part that "
               + "would not have happened without everybody handing in to one place." },
         { key: "wasted", scope: "this cycle", value: totals.duplicates,
@@ -147,7 +147,7 @@ export default function PersonDashboard({
           tone: diary.counts.today ? "petrol" : undefined,
           foot: diary.counts.week ? `${diary.counts.week} in the next seven days` : undefined },
         tests?.counts.total ? {
-          label: "tests still to do", value: tests.counts.open,
+          label: "assessments still to do", value: tests.counts.open,
           tone: tests.counts.overdue ? "brick" : undefined,
           foot: tests.counts.overdue
             ? `${tests.counts.overdue} past the deadline` : undefined,
@@ -216,7 +216,7 @@ export default function PersonDashboard({
       <AssessmentBoard
         data={tests}
         onOpen={onOpenWork}
-        heading={`Tests clients set for ${whose} profiles`}
+        heading={`Assessments clients set for ${whose} profiles`}
         note="A missed deadline changes nothing on screen until the client writes again."
       />
 

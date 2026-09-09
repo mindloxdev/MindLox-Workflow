@@ -223,7 +223,7 @@ export const api = {
     return request(`/jobs?${params.toString()}`);
   },
 
-  // Take-homes and tests. Same shape as the diary and scoped the same way.
+  // Assessments. Same shape as the diary and scoped the same way.
   assessments: (profileId) =>
     request(`/assessments${profileId ? `?profile_id=${profileId}` : ""}`),
   createAssessment: (payload) => request("/assessments", { method: "POST", body: payload }),
@@ -231,7 +231,7 @@ export const api = {
     request(`/assessments/${id}`, { method: "PATCH", body: payload }),
   deleteAssessment: (id) => request(`/assessments/${id}`, { method: "DELETE" }),
 
-  // Every conversation and take-home as a spreadsheet, scoped from the token
+  // Every conversation and assessment as a spreadsheet, scoped from the token
   // like the screens are. Used with `download`, not `request`.
   pipelinePath: (profileId) =>
     `/pipeline.xlsx${profileId ? `?profile_id=${profileId}` : ""}`,

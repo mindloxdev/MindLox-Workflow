@@ -64,7 +64,7 @@ function DeveloperView({ person, batchId, dateRange, onClose }) {
         { label: "applications in their name", value: funnel.applications, foot: "all time" },
         { label: "reached an interview", value: `${funnel.interview_rate}%` },
         data.assessments?.counts.total ? {
-          label: "take-homes outstanding", value: data.assessments.counts.open,
+          label: "assessments outstanding", value: data.assessments.counts.open,
           tone: data.assessments.counts.overdue ? "brick" : undefined,
           foot: data.assessments.counts.overdue
             ? `${data.assessments.counts.overdue} past the deadline` : undefined,
@@ -81,8 +81,8 @@ function DeveloperView({ person, batchId, dateRange, onClose }) {
 
       <AssessmentBoard
         data={data.assessments}
-        heading={`Take-homes on ${data.developer.name}`}
-        note="A diary says they are free Thursday; a test due Friday says otherwise."
+        heading={`Assessments on ${data.developer.name}`}
+        note="A diary says they are free Thursday; an assessment due Friday says otherwise."
       />
 
       {data.profiles.length > 0 && (
@@ -187,8 +187,8 @@ function ProfileDetail({ profileId, batchId, dateRange, onClose }) {
 
       <AssessmentBoard
         data={data.assessments}
-        heading={`Take-homes under ${profile.name}`}
-        note="Tests a client sent to this identity."
+        heading={`Assessments under ${profile.name}`}
+        note="Assessments a client sent to this identity."
       />
 
       <div>
@@ -588,7 +588,7 @@ export default function ManagerDashboard({ onOpenBatches }) {
         </div>
       </Disclosure>
 
-      <Disclosure title="Interviews and tests"
+      <Disclosure title="Interviews and assessments"
                   badge={diary?.counts.scheduled || null}
                   hint="today, the coming fortnight, and what clients set">
         <div className="stack" style={{ gap: 14 }}>
@@ -616,7 +616,7 @@ export default function ManagerDashboard({ onOpenBatches }) {
 
           <AssessmentBoard
             data={data.assessments}
-            heading="Tests clients have set"
+            heading="Assessments clients have set"
             note="Set by whoever runs the profile, done by the developer behind it. The only work here with a deadline on it."
             limit={12}
           />

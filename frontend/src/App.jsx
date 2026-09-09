@@ -49,12 +49,12 @@ const PANES = {
     { label: "Others' jobs", view: "work", pane: "new" },
     { label: "All jobs", view: "work", pane: "record" },
     { label: "Interviews", view: "work", pane: "interviews" },
-    { label: "Tests from clients", view: "work", pane: "assessments" },
+    { label: "Assessments from clients", view: "work", pane: "assessments" },
   ],
   dev: [
     { label: "Today", view: "dashboard", pane: "desk" },
     { label: "Every interview", view: "dashboard", pane: "diary" },
-    { label: "Tests set for me", view: "dashboard", pane: "assessments" },
+    { label: "Assessments set for me", view: "dashboard", pane: "assessments" },
   ],
   admin: [],
 };

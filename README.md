@@ -64,7 +64,7 @@ are not discussing the same number.
 |---|---|
 | **Own jobs** | Jobs somebody went out and found on their own sheet, and applied for. |
 | **Others' jobs** | Jobs a colleague found, that the cycle handed over, and this profile then applied for. |
-| **Applications sent** | Own jobs + others' jobs. The week's work, whole. |
+| **Applied this cycle** | Own jobs + others' jobs. The week's work, whole. All-time and per-client counts of the same thing stay **applications sent** — they are not this cycle's. |
 | **Applied** | Marked as gone out. |
 | **Skipped** | Looked at and said no to, with a reason. Never offered to that profile again. Never called "turned down". |
 | **Still to do** | Handed over and not yet answered either way. Comes back next cycle. |
@@ -72,6 +72,7 @@ are not discussing the same number.
 | **Cycle** | One dispatch: everybody hands in, the lists are built, the team works them. Never a "round" and never a "batch" — `batches` is a table name, not a word anybody reads. |
 | **Round** | One conversation in an interview ladder. Only ever that. |
 | **Cycle clock** | A countdown the manager sets on a cycle. Every BD sees the same one; it changes nothing when it ends. |
+| **Assessment** | The exercise a client sets and the developer does. Never a "test" and never a "take-home" — it was going under all three at once. |
 
 Nothing on a screen is named after the column it is stored in. The database
 still says `logged`, `assigned` and `done_pct`; a person reading the app never
@@ -147,20 +148,20 @@ Mon 24 Aug · 12:05*.
 
 ### A link to the client's own email
 
-Optional, on an interview and on a test. The meeting link is where to be at two
+Optional, on an interview and on an assessment. The meeting link is where to be at two
 o'clock; this is what the client actually asked for, and three weeks later it is
 the only place their words still exist. A separate field on purpose — storing
 one in the other means whoever needs the wording opens a dead meeting room.
 
 It can be added at any of four moments: booking the interview, pressing **they
 replied** on the job record (the cheapest moment there will ever be, since the
-BD is reading the reply at that instant), recording a test, or afterwards in the
+BD is reading the reply at that instant), recording an assessment, or afterwards in the
 **notes** drawer on any row. Either side can add it: a reply gets booked in ten
 seconds off a phone and the thread gets pasted in later, from a desk.
 
 Two defaults, both overridable. The **next round keeps the thread of the round
 it follows**, because it is the same conversation with the same client. A
-**test takes the thread off the call that produced it**. Both appear beside the
+**assessment takes the thread off the call that produced it**. Both appear beside the
 meeting link as *their email* rather than a second anonymous *open* — the two
 links go to completely different places, and picking the wrong one at two
 o'clock costs a meeting. The pipeline download carries a **Client email**
@@ -181,7 +182,7 @@ applications-to-offers percentage cannot tell you: a team losing everybody at
 an availability problem, and those call for opposite fixes.
 
 `assessment` is a rung rather than something beside the ladder, because a
-take-home is a place a candidate is *at* — the client is not talking to anyone
+assessment is a place a candidate is *at* — the client is not talking to anyone
 else while it is out.
 
 ### Climbing it
@@ -286,9 +287,10 @@ one posting in two.
 
 ## Assessments
 
-Called **tests** on every screen, because that is what a client calls them and
-the app had been using three words — assessment, take-home, test — for one
-thing. `assessments` is still the table.
+Called **assessments** on every screen. The app had been using three words —
+assessment, take-home, test — for one thing, which on the glossary's own rule
+is three different things to anybody reading two screens. `assessments` is the
+table as well, so the word a person reads and the word the store uses agree.
 
 The third thing a client can ask for, after a reply and a call, and the one
 that costs a developer a weekend.
@@ -300,7 +302,7 @@ how far along they are and what went back. Either may write either half.
     sent -> in progress -> submitted -> passed / did not pass
 
 It does not need an interview to exist first. Plenty of clients screen with a
-test before anybody speaks, and an assessment that could only hang off a call
+assessment before anybody speaks, and one that could only hang off a call
 would force somebody to invent a call that never happened. When it *did* come
 out of a round, it links back to it and reads as "after the technical round".
 
@@ -308,13 +310,13 @@ It carries the same posting an interview does — the six fields above, worked
 out the same way, including that profile's own **applied on** date. Name a call
 on the form and the posting comes across with it, because the call already
 knows which one; leave the call blank and the same job search offers it
-directly. A take-home and the conversation that produced it are one thing, and
+directly. An assessment and the conversation that produced it are one thing, and
 two screens describing it differently is worse than neither of them saying.
 
 **No deadline is a real answer**, and the commonest one after "next Friday". It
 stays empty rather than becoming today, because an invented deadline is a red
 flag on somebody's screen that nobody set. One that *is* set and passes turns
-the row over — but only while it is still open. A take-home submitted late is a
+the row over — but only while it is still open. An assessment submitted late is a
 thing that happened, not a thing to chase.
 
 A deadline is the one thing here that goes wrong **silently**. Every other
@@ -327,11 +329,11 @@ is carried everywhere rather than kept in its own tab:
 - on **every dashboard** — the BD's, the developer's, the manager's, and a
   single profile's page;
 - on the **interview row it came out of**, because when a client has sent a
-  test the test *is* the state of that conversation, and having to open a
+  assessment the assessment *is* the state of that conversation, and having to open a
   second tab to find out whether you are waiting on the client or on your own
   developer is how a week goes past;
 - on the **developer board**, as a column. "Free on Thursday" is not free when
-  a test is due Friday, and a manager reading availability off the diary alone
+  an assessment is due Friday, and a manager reading availability off the diary alone
   books straight over it. An overdue one sorts that developer to the top.
 
 - **The time is Eastern.** Always, said out loud on the form and again on every
@@ -370,7 +372,7 @@ reporting a figure it knows is too low.
 
 All of it downloads. **Download as Excel** on the interviews screen gives two
 sheets — every conversation, with its round and what it followed, and every
-take-home with its deadline and what went back. It is scoped exactly like the
+assessment with its deadline and what went back. It is scoped exactly like the
 screen it comes from: a BD gets the profiles they run, a developer the ones
 they are sold under, a manager the workspace. Everything else this app exports
 counts what went *out*; this is the half that says what came back, and it is
@@ -594,11 +596,11 @@ were **others' jobs**, how many were **also found by somebody else**, and how
 many **clients wanted to talk**. Each says which window it counts over, because
 two of them are this cycle and two are all-time and nothing in the words says
 which. The rest — what was handed over, what was skipped, how far through
-the list you are, the streak, today's interviews, tests outstanding — sits under
+the list you are, the streak, today's interviews, assessments outstanding — sits under
 them in one quiet row, because none of those is worth a headline on its own.
 
 Below that: what the applications turned into, any conversation that cleared a
-cycle and then stopped, the tests clients set, and a fortnight of daily
+cycle and then stopped, the assessments clients set, and a fortnight of daily
 activity. **Break it down by profile** folds the per-profile cards away, since
 most mornings the total is the answer and a row of cards between the figures and
 the diary is just distance.
@@ -642,7 +644,7 @@ Then their own record, in four figures rather than six: interviews to turn up to
 in the next seven days, interviews **with no result recorded** — which reads as
 *nothing is owed* when it is zero rather than as an accusation — applications
 sent in their name, and offers. They are entitled to that. It is their name on
-every one of those applications. Alongside it, the tests sitting on their week
+every one of those applications. Alongside it, the assessments sitting on their week
 and any conversation that cleared a round and then stopped — the one thing on that screen they can fix in a single press.
 
 **My details** is the other half of the screen and the part a BD depends on:
@@ -661,7 +663,7 @@ nobody submitted is a developer still quietly showing as free.
 Written for somebody who does not use the rest of the app and should not have to
 learn its vocabulary to read it.
 
-**What needs you.** The list, hardest first: clients waiting on a time, tests
+**What needs you.** The list, hardest first: clients waiting on a time, assessments
 past a deadline, sheets not handed in, interviews today, conversations that went
 quiet, results nobody recorded.
 
@@ -669,7 +671,7 @@ quiet, results nobody recorded.
 matters* opens when somebody presses the row. Six of these with a paragraph
 apiece was the screenful that pushed everything else below the fold.
 
-**The four numbers.** Applications sent this cycle, how many of those came off a
+**The four numbers.** Applied this cycle, how many of those came off a
 colleague's sheet, and — all-time, because a reply lands weeks after the
 application that earned it — clients who wanted to talk and offers of work. Nine
 tiles were a wall the eye slid off, and the ones that mattered were in the
@@ -704,7 +706,7 @@ for 1–15 September did not mean today. Only that table follows the switch:
 narrowing the four numbers, the drop and the duplication to one morning would
 make every one of them read as a bad week.
 
-The columns add up. **Applications sent** is everything they applied for, and
+The columns add up. **Applied this cycle** is everything they applied for, and
 the two columns after it are that same number split — **own jobs** and
 **others' jobs**. They used not to: the column counted only jobs off a
 colleague's sheet while the same words at the top of the page meant everything,
@@ -726,7 +728,7 @@ out, and the cycle, the dates and the Today/This cycle switch are as you left
 them.
 
 **Everything else starts closed.** What the applications turned into, effort
-spent twice, the day-by-day strip, interviews and tests, the developers, every
+spent twice, the day-by-day strip, interviews and assessments, the developers, every
 profile separately, and who may see whose figures — each its own section, each
 opening when somebody asks for it. A manager who opens this screen once a
 morning should be finished before any of them, and the things they came for stop
@@ -750,7 +752,7 @@ Two of those sections are worth calling out:
   somebody else's client relationship is how one reply becomes two
   conversations.
 - **The developers.** Who is behind each profile, whether they could start on
-  Monday, what is in their diary, and how many tests are sitting on them.
+  Monday, what is in their diary, and how many assessments are sitting on them.
   **Open** is that developer's own screen, and outcomes can be recorded from it
   — the person chasing them is usually the one looking.
 
@@ -761,7 +763,7 @@ answers the question a manager is actually asked on the phone: **have we been to
 Northwind before, and how did it go.**
 
 Nothing here is a new source of truth. It is the same postings, conversations
-and tests, grouped by the company instead of by the person who typed them, with
+and assessments, grouped by the company instead of by the person who typed them, with
 one small table for the manager's own annotations.
 
 **Status is derived, never typed.** A status somebody sets by hand is a status
@@ -773,7 +775,7 @@ for a different reason:
 |---|---|
 | Hired | An outcome of hired |
 | Offer | An outcome of offer, no hire |
-| Test out | An open test, whatever the interviews say |
+| Assessment out | An open assessment, whatever the interviews say |
 | Stalled | Cleared a round with nothing booked after |
 | In conversation | Booked or held, not settled either way |
 | Replied, no time agreed | A reply started from the job record, no time on it |
@@ -781,9 +783,9 @@ for a different reason:
 | Approached | Applications exist, no reply |
 
 A client sits in exactly one column, the furthest up that ladder — except that
-**Test out** and **Stalled** beat **In conversation**, because those two are
+**Assessment out** and **Stalled** beat **In conversation**, because those two are
 waiting on somebody here. A client at "in conversation" is fine; a client
-sitting on an unanswered test is not, and filing them together hides the only
+sitting on an unanswered assessment is not, and filing them together hides the only
 one worth acting on. **Closed** sits *below* the live states rather than above
 them: a client who said no in March and is talking again in September is talking
 again.
@@ -799,7 +801,7 @@ is mostly for.
 **Opening a row opens the client**, on its own page, the same way opening a
 person does from the team table. Inside: the conversations as one block per
 chain rather than one row per sitting, the meeting link and *their email* named
-separately, the brief and the debrief side by side; the tests and their
+separately, the brief and the debrief side by side; the assessments and their
 deadlines; every posting ever applied to there, which is the answer to *have we
 been here before*; and what was found twice, because a run of those at one
 company is a search problem rather than a dispatch problem.
@@ -1278,7 +1280,7 @@ are what a real run would write.
      applied to, refreshed as the lists rebuild.
    - **All jobs** — everything ever applied for, searchable.
    - **Interviews** — replies that turned into conversations, and the outcomes.
-   - **Tests** — what clients set, and how far along each is.
+   - **Assessments** — what clients set, and how far along each is.
 5. Nobody needs to press anything. The lists rebuild on the timer as sheets
    arrive; **Build now** is there if you want it immediately. **Dashboard**
    shows you who has handed in, who is working their list and who is not,
@@ -1297,7 +1299,7 @@ are what a real run would write.
    first-hand. Both appear on the BD's screen within the minute, tagged with
    who said so and when. That single outcome field is what makes every rate in
    the app mean anything.
-7b. If the client sends a test, record it under **Tests** with whatever
+7b. If the client sends an assessment, record it under **Assessments** with whatever
    deadline they gave — or none, if they gave none. The developer picks it up
    there, and anything still open past its deadline is called out on both
    screens.
@@ -1504,7 +1506,7 @@ backend/
     crm.py        The client account view — read-only, one pass over the lot
     dashboard.py  Progress figures — read-only queries, no writes anywhere
     interviews.py The diary, the ladder and the funnel — read-only too
-    assessments.py Take-homes and their deadlines — read-only too
+    assessments.py Assessments and their deadlines — read-only too
     ingest.py     Spreadsheet reading and column auto-detection
     exports.py    Excel output — dispatched lists, the cycle report, the pipeline
     schema.py     The v1 -> v2 upgrade, and the columns added since
@@ -1537,7 +1539,7 @@ frontend/
       Interviews.jsx       Scheduling and the diary — one component, three screens
       JobRecord.jsx        Every job ever applied for, searched, and the
                            interview started from a row
-      Assessments.jsx      Take-homes: set on one side, done on the other
+      Assessments.jsx      Assessments: set on one side, done on the other
       AdminHome.jsx        Running cycles
       People.jsx           People, profiles, developers, and who is on the board
       shell.jsx            Toasts, the command palette and the theme — the
@@ -1545,7 +1547,7 @@ frontend/
       widgets.jsx          The shared pieces, and the glossary at the top of
                            it: tiles and big figures, the day strip, the flow
                            chart, the stage ladder, the stalled list, the
-                           board, the tests board and the
+                           board, the assessments board and the
                            between-two-dates report
     styles.css             The design system: one neutral ramp, four semantic
                            families, and every component this app uses

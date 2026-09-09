@@ -3,7 +3,7 @@ import { api, safeUrl } from "../api.js";
 import { JobDetail, JobPicker, Loading, STAGE_LABELS } from "./widgets.jsx";
 import { useToast } from "./shell.jsx";
 
-/** Take-homes and tests: set by the BD, done by the developer.
+/** Assessments: set by the BD, done by the developer.
  *
  * The same split as an interview and for the same reason. The BD has the
  * client's email, so the brief, the link and the deadline are theirs. The
@@ -36,8 +36,8 @@ const BLANK = {
   email_url: "",
   due_at: "",
   interview_id: "",
-  // The posting the test came out of. Inherited from the interview when one is
-  // named, and pickable directly for a client that screened with a take-home
+  // The posting the assessment came out of. Inherited from the interview when one
+  // is named, and pickable directly for a client that screened with an assessment
   // before anybody spoke. `job` is the whole record row so the form can show
   // what was picked; only `job_id` goes to the server.
   job_id: null,
@@ -117,7 +117,7 @@ export default function Assessments({
     }
   }, [form.profile_id, profiles, devOverride]);
 
-  /* Search the record for the posting this test came out of.
+  /* Search the record for the posting this assessment came out of.
    *
    * Scoped to the profile the form is on, for the same reason the diary's
    * picker is: a job the *other* identity applied to is not this
@@ -167,7 +167,7 @@ export default function Assessments({
   const remove = async (row) => {
     if (!window.confirm(
       `Remove “${row.title}”? If the client withdrew it, mark it and leave it — `
-      + "a test that was pulled is worth knowing about. This is for one that was never real."
+      + "an assessment that was pulled is worth knowing about. This is for one that was never real."
     )) return;
     try {
       await api.deleteAssessment(row.id);
@@ -180,7 +180,7 @@ export default function Assessments({
   if (!data) return <Loading lines={4} />;
 
   const { counts } = data;
-  // Only calls that have been and gone can have produced a take-home.
+  // Only calls that have been and gone can have produced an assessment.
   const sittings = (diary?.recent || []).concat(diary?.today || []);
 
   return (
@@ -192,7 +192,7 @@ export default function Assessments({
         </div>
         {canSet && profiles.length > 0 && (
           <button className={adding ? "ghost" : ""} onClick={() => setAdding((on) => !on)}>
-            {adding ? "Never mind" : "Record a test"}
+            {adding ? "Never mind" : "Record an assessment"}
           </button>
         )}
       </div>
@@ -216,7 +216,7 @@ export default function Assessments({
             <div>
               <label htmlFor="as-profile">Applying as</label>
               {/* Changing the identity drops any posting already attached —
-                  a job the other profile applied to is not this test. */}
+                  a job the other profile applied to is not this assessment. */}
               <select id="as-profile" style={{ width: "100%", marginTop: 4 }}
                       value={form.profile_id}
                       onChange={(e) => setForm({
@@ -276,7 +276,7 @@ export default function Assessments({
             <div>
               <label htmlFor="as-title">What is it</label>
               <input id="as-title" style={{ width: "100%", marginTop: 4 }}
-                     placeholder="Take-home · RAG pipeline" value={form.title}
+                     placeholder="Assessment · RAG pipeline" value={form.title}
                      onChange={(e) => setForm({ ...form, title: e.target.value })} />
             </div>
             <div>
@@ -294,7 +294,7 @@ export default function Assessments({
             <div style={{ gridColumn: "span 2" }}>
               <label htmlFor="as-link">Where the task is</label>
               <input id="as-link" style={{ width: "100%", marginTop: 4 }}
-                     placeholder="https://example.com/take-home" value={form.link}
+                     placeholder="https://example.com/assessment" value={form.link}
                      onChange={(e) => setForm({ ...form, link: e.target.value })} />
             </div>
             <div style={{ gridColumn: "span 2" }}>
@@ -343,11 +343,11 @@ export default function Assessments({
 
           {/* Named a call above and the posting comes with it — the interview
               already knows which one. This is for the other case, and it is
-              common: plenty of clients screen with a take-home before anybody
-              speaks, and there is no call for that test to hang off. */}
+              common: plenty of clients screen with an assessment before anybody
+              speaks, and there is no call for that assessment to hang off. */}
           {!form.interview_id && (
             <div>
-              <label>Which job is this test for?</label>
+              <label>Which job is this assessment for?</label>
               <div style={{ marginTop: 4 }}>
                 <JobPicker
                   value={form.job}
@@ -361,7 +361,7 @@ export default function Assessments({
                     // client's email beats what the sheet recorded.
                     client: current.client || row.company || "",
                     title: current.title
-                      || (row.title ? `Take-home · ${row.title}` : ""),
+                      || (row.title ? `Assessment · ${row.title}` : ""),
                   }))}
                   onClear={() => setForm((current) => ({
                     ...current, job: null, job_id: null,
@@ -388,7 +388,7 @@ export default function Assessments({
       <Section title="Finished with" rows={data.closed} canSet={canSet}
                open={open} setOpen={setOpen} onChange={change} onRemove={remove}
                empty="Nothing has been submitted yet."
-               note="Kept next to the conversation it came from — a test that did not pass is
+               note="Kept next to the conversation it came from — an assessment that did not pass is
                      as worth seeing as one that did." />
     </section>
   );
@@ -426,7 +426,7 @@ function Section({ title, rows, canSet, open, setOpen, onChange, onRemove, empty
                           after the {STAGE_LABELS[row.interview.stage] || row.interview.stage}
                         </div>
                       )}
-                      {/* The posting it is a test for. The same block the
+                      {/* The posting it is an assessment for. The same block the
                           diary shows, so the two screens describing one
                           conversation cannot describe it differently. */}
                       <JobDetail job={row.job} />

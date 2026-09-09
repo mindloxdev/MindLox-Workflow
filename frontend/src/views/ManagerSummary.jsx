@@ -57,7 +57,7 @@ function needsYou({ org, missing, diary, assessments }) {
     items.push({
       key: "overdue-tests",
       level: "now",
-      title: `${n} ${plural(n, "test is", "tests are")} past the deadline a client set.`,
+      title: `${n} ${plural(n, "assessment is", "assessments are")} past the deadline a client set.`,
       body: "A missed deadline is the one thing here that goes wrong silently — "
           + "nothing on any other screen changes, and the next you hear is the client.",
     });
@@ -157,7 +157,7 @@ export function Headline({ org, funnel }) {
       key: "sent",
       scope: "this cycle",
       value: num(sent),
-      label: "applications sent",
+      label: "applied this cycle",
       body: "Every job somebody applied for this cycle, whether they found it "
           + "themselves or a colleague found it for them.",
       tone: "good",
@@ -166,7 +166,7 @@ export function Headline({ org, funnel }) {
       key: "shared",
       scope: "this cycle",
       value: num(org.from_others),
-      label: "of those, others' jobs",
+      label: "others' jobs",
       body: sent
         ? `${Math.round((org.from_others / sent) * 100)}% of the cycle's work came off `
           + "somebody else's sheet. This is the part that would not have happened "
@@ -204,11 +204,11 @@ export function HeadlineKey({ org, funnel }) {
   return (
     <div className="stack" style={{ gap: 8, maxWidth: 720 }}>
       <p className="muted">
-        <b>Applications sent</b> — every job somebody applied for this cycle,
+        <b>Applied this cycle</b> — every job somebody applied for this cycle,
         whether they found it themselves or a colleague found it for them.
       </p>
       <p className="muted">
-        <b>Of those, others&apos; jobs</b> — work that came off somebody else&apos;s
+        <b>Others&apos; jobs</b> — work that came off somebody else&apos;s
         sheet{sent ? `, ${Math.round((org.from_others / sent) * 100)}% of the cycle` : ""}.
         This is the part that would not have happened without everybody handing
         in to one place.
@@ -345,7 +345,7 @@ export function ListLegend() {
  * screen, the chevron opens the numbers underneath. A row that did both would
  * navigate away from somebody trying to read it.
  *
- * The columns still add up. "Applications sent" is everything they applied
+ * The columns still add up. "Applied this cycle" is everything they applied
  * for; own jobs and others' jobs are that same number split.
  */
 function PersonRow({ person, onOpen, onToggle, busy }) {
@@ -457,7 +457,7 @@ export function PeopleTable({ people, onOpen, onToggle, busy }) {
           <thead>
             <tr>
               <th>Person</th>
-              <th className="num">Applications sent</th>
+              <th className="num">Applied this cycle</th>
               <th style={{ width: 168 }}>Their list</th>
               <th>Last worked</th>
               <th style={{ width: 44 }}><span className="sr-only">More</span></th>
@@ -477,7 +477,7 @@ export function PeopleTable({ people, onOpen, onToggle, busy }) {
 
       <ListLegend />
       <p className="hint" style={{ maxWidth: 760 }}>
-        <b>Applications sent</b> is everything they applied for. <b>Their list</b> is
+        <b>Applied this cycle</b> is everything they applied for. <b>Their list</b> is
         how far through the work a colleague handed them they have got. Press a
         name to open their screen, or the chevron for the rest of their figures.
       </p>

@@ -95,7 +95,7 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
     return () => { live = false; clearInterval(tick); };
   }, [only, dateRange]);
 
-  // A BD can set a take-home at any moment, and the deadline on it is usually
+  // A BD can set an assessment at any moment, and the deadline on it is usually
   // days rather than weeks.
   useEffect(() => {
     // The whole payload rather than only the counts: the desk shows the open
@@ -225,7 +225,7 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
         lead="Hardest first. Each one has the button that deals with it."
         empty={{
           title: "Nothing is waiting on you.",
-          body: "Every interview that has happened has been reported on, no test is "
+          body: "Every interview that has happened has been reported on, no assessment is "
               + "past its deadline, and nothing has gone quiet.",
         }} />
 
@@ -237,7 +237,7 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
             { key: "desk", label: dateRange.dateFrom || dateRange.dateTo ? "Range" : "Today",
               count: dateRange.dateFrom || dateRange.dateTo ? funnel.interviews : counts.today, tone: "a" },
           { key: "diary", label: "Every interview", count: counts.total },
-          { key: "assessments", label: "Tests",
+          { key: "assessments", label: "Assessments",
             count: tests?.counts.open,
             tone: tests?.counts.overdue ? "bad" : undefined },
         ]}
@@ -247,7 +247,7 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
         <Assessments
           profiles={only ? profiles.filter((p) => p.id === only) : profiles}
           profileId={only}
-          heading={chosen ? `Tests set for ${chosen.name}` : "Tests set for you"}
+          heading={chosen ? `Assessments set for ${chosen.name}` : "Assessments set for you"}
           intro="A client set these against one of the names you are sold under. Your BD records them; doing them is yours."
         />
       ) : pane === "diary" ? (
@@ -318,7 +318,7 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
       <AssessmentBoard
         data={tests || data.assessments}
         onOpen={() => setPane("assessments")}
-        heading={chosen ? `Tests set for ${chosen.name}` : "Tests set for you"}
+        heading={chosen ? `Assessments set for ${chosen.name}` : "Assessments set for you"}
         note="Your BD records these when a client sets one. Doing them is yours."
       />
 

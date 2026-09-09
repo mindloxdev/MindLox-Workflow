@@ -58,7 +58,7 @@ MAX_PER_PAGE = 200
 STATUSES = (
     ("hired", "Hired"),
     ("offer", "Offer"),
-    ("test_out", "Test out"),
+    ("test_out", "Assessment out"),
     ("stalled", "Stalled"),
     ("in_conversation", "In conversation"),
     ("replied", "Replied, no time agreed"),
@@ -401,7 +401,7 @@ def needs_you(rows: Sequence[dict]) -> list[dict]:
         "time is on it, and the client is wondering in the meantime.")
     add("overdue", "now",
         [r for r in rows if r["overdue_tests"]],
-        "a test past its deadline",
+        "an assessment past its deadline",
         "Nothing on any screen changes when a deadline passes. This is the only "
         "warning there is.")
     add("stalled", "chase",

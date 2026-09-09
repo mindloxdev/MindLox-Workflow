@@ -313,12 +313,18 @@ export function Empty({ title, children, action }) {
  *                     then applied for.  (from_others / applied)
  *   Others' jobs given  what the cycle put on a profile's list, whether or not
  *                     anything has been done with it yet.  (assigned)
- *   Applications sent own jobs + others' jobs. The week's work, whole.
+ *   Applied this cycle  own jobs + others' jobs. The week's work, whole.
+ *                     All-time and per-client counts of the same thing stay
+ *                     "applications sent": they are not this cycle's.
  *   Applied           marked as gone out.
  *   Skipped           a job this profile looked at and said no to, with a
  *                     reason. Never "turned down".  (skipped)
  *   Still to do       handed over and not yet answered either way.  (pending)
  *   Found twice       a posting two profiles both went out and found.
+ *   Assessment        the exercise a client sets and the developer does. Never
+ *                     a "test" and never a "take-home" — it was going under all
+ *                     three at once, which on this page's own rule is three
+ *                     different things to anybody reading two screens.
  *
  * Nothing on a screen is named after the column it is stored in.
  */
@@ -346,9 +352,9 @@ export function Flow({ funnel, awaiting = 0 }) {
 
   const steps = [
     { key: "applications",
-      label: funnel.scoped_to_cycle ? "Applications sent" : "Applications sent, all time",
+      label: funnel.scoped_to_cycle ? "Applied this cycle" : "Applications sent, all time",
       value: funnel.applications,
-      foot: funnel.scoped_to_cycle ? "this round" : "every round" },
+      foot: funnel.scoped_to_cycle ? "this cycle" : "every cycle" },
     { key: "interviews", label: "Clients who wanted to talk", value: funnel.interviews,
       foot: funnel.applications ? `${funnel.interview_rate}% of applications` : "" },
     { key: "offers", label: "Offers made", value: funnel.offers,
@@ -840,12 +846,12 @@ export function ProfileCard({ row, children, onOpen }) {
         <span>{row.all_time} applications sent, all time</span>
       </div>
       {/* A card about how much this identity applied for is half the story if
-          it says nothing about the test it owes a client. Only drawn when
-          there is one — a permanent "0 take-homes" is noise. */}
+          it says nothing about the assessment it owes a client. Only drawn when
+          there is one — a permanent "0 assessments" is noise. */}
       {row.assessments_open > 0 && (
         <div style={{ fontSize: 12,
                       color: row.assessments_overdue ? "var(--brick)" : undefined }}>
-          {row.assessments_open} take-home{row.assessments_open === 1 ? "" : "s"} outstanding
+          {row.assessments_open} assessment{row.assessments_open === 1 ? "" : "s"} outstanding
           {row.assessments_overdue
             ? ` · ${row.assessments_overdue} past the deadline`
             : ""}
@@ -947,7 +953,8 @@ export function CopyButton({ value, label = "copy" }) {
 export function Funnel({ data, note = "", awaiting = 0 }) {
   if (!data) return null;
   const steps = [
-    { label: "applications sent", value: data.applications,
+    { label: data.scoped_to_cycle ? "applied this cycle" : "applications sent",
+      value: data.applications,
       foot: data.scoped_to_cycle ? "this cycle" : "all time" },
     { label: "interviews", value: data.interviews,
       foot: data.applications ? `${data.interview_rate}% of applications` : "—" },
@@ -1024,7 +1031,7 @@ export function NextInterview({ row, onOpen, openLabel = "All interviews" }) {
 export const STAGE_LABELS = {
   screening: "screening call",
   technical: "technical round",
-  assessment: "take-home",
+  assessment: "assessment",
   final: "final round",
   offer: "offer talks",
 };
@@ -1198,10 +1205,10 @@ export function JobPicker({ value, onPick, onClear, onSearch, disabled = false }
   );
 }
 
-/** The take-homes that came out of one conversation, as chips on its row.
+/** The assessments that came out of one conversation, as chips on its row.
  *
  * On the interview rather than only in its own tab, because when a client has
- * sent a test the test *is* the state of that conversation, and a diary that
+ * sent an assessment the assessment *is* the state of that conversation, and a diary that
  * cannot say so sends people to a second screen to find out whether they are
  * waiting on the client or on their own developer.
  */
@@ -1212,8 +1219,8 @@ export function AssessmentChips({ rows }) {
       {rows.map((row) => (
         <span key={row.id}
               className={row.overdue ? "pill off" : row.status === "passed" ? "pill on" : "pill"}
-              title={`${row.title || "take-home"}${row.due ? ` · due ${row.due.label}` : ""}`}>
-          {row.overdue ? "take-home overdue" : `take-home ${ASSESSMENT_LABELS[row.status] || row.status}`}
+              title={`${row.title || "assessment"}${row.due ? ` · due ${row.due.label}` : ""}`}>
+          {row.overdue ? "assessment overdue" : `assessment ${ASSESSMENT_LABELS[row.status] || row.status}`}
         </span>
       ))}
     </span>
@@ -1468,7 +1475,7 @@ function InterviewNotes({ row, canBook, onChange, onClose }) {
         </p>
         {onChange ? (
           <textarea id={`debrief-${row.id}`} rows={3} style={{ width: "100%" }}
-                    placeholder="Went well. They are sending a take-home by Friday."
+                    placeholder="Went well. They are sending an assessment by Friday."
                     value={draft} onChange={(e) => setDraft(e.target.value)} />
         ) : (
           <p className="muted">{row.debrief || "Nothing recorded yet."}</p>
@@ -1635,7 +1642,7 @@ export function StageLadder({ rows }) {
 
 
 /** Every developer, and whether they are free. The manager's version. */
-/** Take-homes, read-only, for a dashboard rather than for working through.
+/** Assessments, read-only, for a dashboard rather than for working through.
  *
  * Its own widget because a deadline is the one thing in this product that goes
  * wrong silently. Every other figure understates itself when nobody touches it
@@ -1648,7 +1655,7 @@ export function StageLadder({ rows }) {
  * `onOpen` points at the screen where they can actually be worked, because a
  * dashboard that reports a problem without a route to it is a dead end.
  */
-export function AssessmentBoard({ data, onOpen, heading = "Take-homes and tests",
+export function AssessmentBoard({ data, onOpen, heading = "Assessments",
                                  note = "", limit = 8 }) {
   if (!data) return null;
   const counts = data.counts || {};
@@ -1836,11 +1843,11 @@ export function DeveloperBoard({ rows, onOpen }) {
             <th className="num" title="Interviews that have happened with no outcome recorded">
               Unreported
             </th>
-            {/* A take-home is the other claim on this person's week and the one
+            {/* An assessment is the other claim on this person's week and the one
                 a calendar cannot show. "Free on Thursday" is not free when a
                 test is due Friday. */}
-            <th className="num" title="Take-homes still open against this developer">
-              Take-homes
+            <th className="num" title="Assessments still open against this developer">
+              Assessments
             </th>
             <th />
           </tr>

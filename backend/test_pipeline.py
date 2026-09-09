@@ -1267,7 +1267,7 @@ def test_a_stranger_cannot_book_a_round_onto_someone_elses_conversation(
 
 
 # --------------------------------------------------------------------------- #
-# Take-homes, everywhere they have to be seen
+# Assessments, everywhere they have to be seen
 # --------------------------------------------------------------------------- #
 
 def test_a_take_home_shows_on_the_interview_it_came_out_of(client, bd, applied):
@@ -1351,12 +1351,12 @@ def test_the_pipeline_downloads_as_a_spreadsheet(client, bd, dev, applied):
     got = client.get(f"/api/pipeline.xlsx?profile_id={profile}", headers=bd)
     assert got.status_code == 200, got.text
     book = load_workbook(io.BytesIO(got.content))
-    assert book.sheetnames == ["Conversations", "Take-homes"]
+    assert book.sheetnames == ["Conversations", "Assessments"]
 
     talks = [[c.value for c in row] for row in book["Conversations"].iter_rows(min_row=2)]
     assert any("2 of 2" in (row[5] or "") for row in talks)     # the chain is legible
 
-    tests = [[c.value for c in row] for row in book["Take-homes"].iter_rows(min_row=2)]
+    tests = [[c.value for c in row] for row in book["Assessments"].iter_rows(min_row=2)]
     # Said in words: a file outlives the screen that would explain a status.
     assert any("overdue" in (row[5] or "") for row in tests)
 

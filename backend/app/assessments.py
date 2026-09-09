@@ -1,4 +1,4 @@
-"""Take-homes, tests and written exercises. Reads only.
+"""Assessments — the exercises a client sets. Reads only.
 
 The third thing a client can ask for, after a reply and a call, and the one
 that costs a developer a weekend. It sits in the same shape as an interview and
@@ -100,7 +100,7 @@ def decorate(db: Session, rows: Sequence[Assessment]) -> list[dict]:
 
     # When this identity applied for the posting, exactly as it was typed on
     # the sheet — the same field, worked out the same way, as on an interview.
-    # A take-home and the call that produced it describe one conversation, and
+    # An assessment and the call that produced it describe one conversation, and
     # two screens disagreeing about when the application went out is worse than
     # neither of them saying.
     #
@@ -141,9 +141,9 @@ def decorate(db: Session, rows: Sequence[Assessment]) -> list[dict]:
                           if sitting else None),
             "job_id": row.job_id,
             # The whole posting, the same six fields an interview carries.
-            # A developer opening a take-home wants the wording that was
+            # A developer opening an assessment wants the wording that was
             # applied to, and the apply link is usually dead by the time a
-            # client gets round to sending a test.
+            # client gets round to sending an assessment.
             "job": ({"id": job.id, "title": job.title or "", "company": job.company or "",
                      "url": job.url or "", "description_url": job.description_url or "",
                      "platform": job.platform or "",
@@ -216,7 +216,7 @@ def by_profile(db: Session, profile_ids: Optional[Sequence[int]] = None) -> dict
 def by_developer(db: Session) -> dict[int, dict]:
     """Counts per developer, added up across every identity they are sold under.
 
-    The manager's question is "who has a take-home sitting on them", and that
+    The manager's question is "who has an assessment sitting on them", and that
     is a fact about a person's weekend rather than about an identity — a
     developer running three profiles with one open test each has three, and
     seeing them as three separate ones is how they get missed.
@@ -231,7 +231,7 @@ def by_developer(db: Session) -> dict[int, dict]:
 def for_interviews(db: Session, interview_ids: Sequence[int]) -> dict[int, list[dict]]:
     """Assessments grouped by the interview that produced them.
 
-    So an interview row can say "and a take-home came out of this" without
+    So an interview row can say "and an assessment came out of this" without
     every screen that shows interviews having to fetch assessments separately.
     """
     ids = [i for i in interview_ids if i]

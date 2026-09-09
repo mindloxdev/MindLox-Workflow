@@ -19,7 +19,7 @@ import React, {
  * printed somewhere the person was not looking. A toast is in the same place
  * every time, whatever the scroll position.
  *
- * Warnings that are still true tomorrow — an overdue take-home, a cleared
+ * Warnings that are still true tomorrow — an overdue assessment, a cleared
  * round with nothing after it — stay as inline notices on purpose. Those are
  * state, not events, and state that dismisses itself after four seconds is
  * state nobody acts on.

@@ -461,7 +461,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
               { key: "interviews", label: "Interviews",
                 count: diary?.awaiting_time || diary?.today || diary?.scheduled,
                 tone: diary?.awaiting_time ? "bad" : undefined },
-              { key: "assessments", label: "Tests",
+              { key: "assessments", label: "Assessments",
                 count: tests?.open,
                 tone: tests?.overdue ? "bad" : undefined },
             ]}
@@ -474,8 +474,8 @@ export default function BdHome({ pane = null, onPaneSeen }) {
           {tab === "assessments" && (
             <Assessments
               profiles={profiles}
-              heading="Tests from clients"
-              intro="Tests a client has set. You record it here; the developer behind the profile does it."
+              heading="Assessments from clients"
+              intro="Assessments a client has set. You record it here; the developer behind the profile does it."
             />
           )}
 

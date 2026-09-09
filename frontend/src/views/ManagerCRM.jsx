@@ -10,7 +10,7 @@ import { DateRange, Loading, Segment, STAGE_LABELS } from "./widgets.jsx";
  * the phone: have we been to Northwind before, and how did it go.
  *
  * Nothing here is a new source of truth. It is the same postings, the same
- * conversations and the same tests, grouped by the company instead of by the
+ * conversations and the same assessments, grouped by the company instead of by the
  * person who typed them. The only writable thing is the manager's own note, and
  * that changes nobody's work: it does not filter the pool, does not skip
  * anything and does not touch dispatch.
@@ -26,7 +26,7 @@ const SORTS = [
   { key: "status", label: "Status" },
   { key: "applications", label: "Applications sent" },
   { key: "found_twice", label: "Found twice" },
-  { key: "open_tests", label: "Open tests" },
+  { key: "open_tests", label: "Open assessments" },
   { key: "next_up", label: "Next in the diary" },
 ];
 
@@ -235,7 +235,7 @@ function Drawer({ clientKey, onClose }) {
 
       <section className="stack" style={{ gap: 10 }}>
         <div>
-          <h2>Tests</h2>
+          <h2>Assessments</h2>
           <p className="hint" style={{ marginTop: 3 }}>
             What this client set, and where each one stands.
           </p>
@@ -440,7 +440,7 @@ export default function ManagerCRM() {
         lead="Hardest first. Each one has the button that opens the client it is about."
         empty={{
           title: "No client is waiting on you.",
-          body: "Nobody is waiting on a time, no test is past its deadline, "
+          body: "Nobody is waiting on a time, no assessment is past its deadline, "
               + "nothing has gone quiet and nothing cleared a round without a "
               + "next one booked.",
         }} />
@@ -529,7 +529,7 @@ export default function ManagerCRM() {
                   <th className="num">Found twice</th>
                   <th>Applied as</th><th>Run by</th><th>Developers</th>
                   <th>Furthest round</th>
-                  <th className="num">Open tests</th>
+                  <th className="num">Open assessments</th>
                   <th>Next in the diary</th><th>Last activity</th>
                 </tr>
               </thead>

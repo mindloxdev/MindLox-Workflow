@@ -18,7 +18,7 @@ WIDTHS = {"#": 5, "Job title": 46, "Company": 26, "Client": 26, "Platform": 14, 
           "When · ET": 18, "Applied as": 20, "Developer": 20, "Role": 40,
           "Client email": 46, "Client": 30, "Status": 22, "Own jobs": 11,
           "Others' jobs": 13, "Found twice": 12, "Profiles": 30, "BDs": 24,
-          "Developers": 24, "Furthest round": 18, "Open tests": 11,
+          "Developers": 24, "Furthest round": 18, "Open assessments": 11,
           "Next in the diary": 26, "Last activity": 15, "First approached": 17,
           "Round": 22, "Follows": 20, "Reported": 26, "Brief": 50, "Debrief": 50,
           "Deadline · ET": 18, "Set by": 20, "What": 40,
@@ -96,7 +96,7 @@ def client_workbook(clients: list[dict], details: list[dict]) -> bytes:
         book, "Clients",
         ["Client", "Status", "Applications sent", "Own jobs", "Others' jobs",
          "Found twice", "Profiles", "BDs", "Developers", "Furthest round",
-         "Open tests", "Next in the diary", "First approached", "Last activity"],
+         "Open assessments", "Next in the diary", "First approached", "Last activity"],
         [[row["client"], row["status_label"], row["applications"], row["own_jobs"],
           row["others_jobs"], row["found_twice"], ", ".join(row["profiles"]),
           ", ".join(row["bds"]), ", ".join(row["developers"]),
@@ -140,7 +140,7 @@ def client_workbook(clients: list[dict], details: list[dict]) -> bytes:
                 (row["submitted"]["label"] if row.get("submitted") else ""),
                 row["submission_url"], row.get("email_url", "")])
     _write_sheet(
-        book, "Tests",
+        book, "Assessments",
         ["Client", "What", "Applied as", "Developer", "Deadline · ET", "Status",
          "Set by", "Submitted", "Submission", "Client email"],
         tests)
@@ -182,7 +182,7 @@ def pipeline_workbook(interviews: list[dict], assessments: list[dict]) -> bytes:
          for row in interviews])
 
     _write_sheet(
-        book, "Take-homes",
+        book, "Assessments",
         ["What", "Company", "Applied as", "Developer", "Due · ET", "Status",
          "Set by", "Submitted", "Submission", "Job link", "Client email",
          "Applied on", "Notes"],

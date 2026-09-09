@@ -118,10 +118,10 @@ export function bdTodo({ diary, tests, batch, toDo, handedIn, profile, go }) {
     items.push({
       key: "overdue",
       level: "now",
-      title: `${n} ${plural(n, "test is", "tests are")} past the deadline the client set.`,
+      title: `${n} ${plural(n, "assessment is", "assessments are")} past the deadline the client set.`,
       body: "This is the one thing here that goes wrong quietly. Nothing on any "
           + "screen changes when a deadline passes — the next you hear is the client.",
-      action: { label: "Open the tests", onClick: () => go("assessments") },
+      action: { label: "Open the assessments", onClick: () => go("assessments") },
     });
   }
 
@@ -168,7 +168,7 @@ export function bdTodo({ diary, tests, batch, toDo, handedIn, profile, go }) {
       level: "chase",
       title: `Nobody is attached to ${profile.name}.`,
       body: "An interview booked against this profile reaches no one, and there "
-          + "is no one to do a test set against it. Your manager attaches a "
+          + "is no one to do an assessment set against it. Your manager attaches a "
           + "developer under People.",
     });
   }
@@ -240,10 +240,10 @@ export function devTodo({ counts, tests, go }) {
     items.push({
       key: "overdue",
       level: "now",
-      title: `${n} ${plural(n, "test is", "tests are")} past its deadline.`,
+      title: `${n} ${plural(n, "assessment is", "assessments are")} past its deadline.`,
       body: "A client set these and is waiting. Nothing anywhere changes when a "
           + "deadline passes, so this is the only warning you get.",
-      action: { label: "Open the tests", onClick: () => go("assessments") },
+      action: { label: "Open the assessments", onClick: () => go("assessments") },
     });
   }
 
@@ -275,10 +275,10 @@ export function devTodo({ counts, tests, go }) {
     items.push({
       key: "open-tests",
       level: "next",
-      title: `${n} ${plural(n, "test", "tests")} still to do.`,
+      title: `${n} ${plural(n, "assessment", "assessments")} still to do.`,
       body: "Set by a client against one of the names you are sold under. "
           + "Nothing is late yet.",
-      action: { label: "Open the tests", onClick: () => go("assessments") },
+      action: { label: "Open the assessments", onClick: () => go("assessments") },
     });
   }
 

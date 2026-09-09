@@ -359,7 +359,7 @@ export default function Interviews({
                       onChange={(e) => setForm({ ...form, stage: e.target.value })}>
                 <option value="screening">screening call</option>
                 <option value="technical">technical round</option>
-                <option value="assessment">take-home</option>
+                <option value="assessment">assessment</option>
                 <option value="final">final round</option>
                 <option value="offer">offer talks</option>
               </select>
@@ -371,7 +371,7 @@ export default function Interviews({
                 <option value="video">video call</option>
                 <option value="call">phone call</option>
                 <option value="onsite">on site</option>
-                <option value="async">written / take-home</option>
+                <option value="async">written / assessment</option>
               </select>
             </div>
             <div>

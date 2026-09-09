@@ -207,7 +207,7 @@ def seed_interviews(db) -> list[str]:
          "Two rounds in one. They want a start date rather than another call."),
         ("Khuram", -6, "16:00", "Larkspur Data", "Document AI / OCR Specialist",
          "video", "done", "passed", 30, "screening",
-         "Went long on the OCR pipeline. They are sending a take-home by Friday."),
+         "Went long on the OCR pipeline. They are sending an assessment by Friday."),
         ("Zahid", -9, "18:00", "Talloak Systems", "ML Ops Engineer - AWS",
          "video", "done", "rejected", 45, "technical",
          "Wanted five years of Kubernetes in production. Worth filtering for next time."),
@@ -248,16 +248,16 @@ def seed_interviews(db) -> list[str]:
                          notes="Replied to the January application. Wants to talk this week."))
         made += 1
 
-    # And one take-home out of the round that produced it, plus one nobody has
+    # And one assessment out of the round that produced it, plus one nobody has
     # started, so the assessments screen has both halves on it.
     cleared = booked.get("Khuram:Larkspur Data")
     if khuram is not None and cleared is not None:
         db.add(Assessment(profile_id=khuram.id, interview_id=cleared.id,
-                          title="Take-home · Document AI pipeline",
+                          title="Assessment · Document AI pipeline",
                           client="Larkspur Data",
                           brief="Extract line items from twenty scanned invoices. "
                                 "Python, any OCR stack. Half a day at most.",
-                          link="https://example.com/take-home/larkspur",
+                          link="https://example.com/assessment/larkspur",
                           due_at=at(2, "17:00"), status="in_progress",
                           created_by=khuram.user_id, updated_by=khuram.dev_user_id))
     nadia = profiles.get("Nadia")

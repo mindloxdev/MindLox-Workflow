@@ -3146,9 +3146,9 @@ def create_assessment(body: AssessmentIn, db: Session = Depends(get_db),
               or (sitting.client if sitting else "")
               or (job.company if job else ""))[:300]
     title = (body.title.strip()
-             or (f"Take-home · {job.title}" if job and job.title else "")
-             or (f"Take-home · {sitting.role}" if sitting and sitting.role else "")
-             or "Take-home")[:300]
+             or (f"Assessment · {job.title}" if job and job.title else "")
+             or (f"Assessment · {sitting.role}" if sitting and sitting.role else "")
+             or "Assessment")[:300]
 
     row = Assessment(profile_id=profile.id, interview_id=body.interview_id,
                      job_id=body.job_id or (sitting.job_id if sitting else None),
