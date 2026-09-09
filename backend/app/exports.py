@@ -230,7 +230,7 @@ def report_workbook(report: dict, per_person: dict[str, list[dict]],
     # download is a worse document than the page it came from, and this is the
     # sheet a manager reads away from their desk.
     if turned_down:
-        _write_sheet(book, "Turned down",
+        _write_sheet(book, "Skipped",
                      ["Job title", "Company", "Profile", "Reason", "When", "Job link"],
                      [[t.get("title", ""), t.get("company", ""), t.get("profile", ""),
                        t.get("reason", ""), t.get("when", ""), t.get("url", "")]

@@ -69,7 +69,7 @@ function needsYou({ org, missing, diary, assessments }) {
       key: "missing",
       level: org.handed_in < 2 ? "now" : "chase",
       title: `${missing.length} ${plural(missing.length, "person has", "people have")} `
-           + "not handed in a job sheet for this round.",
+           + "not handed in a job sheet for this cycle.",
       body: org.handed_in < 2
         ? "Nothing can be worked out until at least two sheets are in — with fewer "
           + "than that there is nothing to compare. Waiting on: " + names + "."
@@ -139,14 +139,14 @@ export function NeedsYou(data) {
  * middle of it.
  *
  * Every card says which window it is counting over, because two of these are
- * this round and two are all time and there is no way to guess which from the
- * words alone. Interviews and offers cannot be scoped to a round without
- * lying: a client who replies three weeks late is answering work from a round
- * that closed, and counting that reply against whichever round happened to be
+ * this cycle and two are all time and there is no way to guess which from the
+ * words alone. Interviews and offers cannot be scoped to a cycle without
+ * lying: a client who replies three weeks late is answering work from a cycle
+ * that closed, and counting that reply against whichever cycle happened to be
  * open would credit the wrong fortnight. So they are all-time, and say so.
  */
 export function Headline({ org, funnel }) {
-  // Every application the team sent this round, whoever found the job. The
+  // Every application the team sent this cycle, whoever found the job. The
   // screen used to headline `applied` on its own, which is only the ones that
   // came off a colleague's list — on a team that finds most of its own work
   // that reads as barely half the week.
@@ -155,20 +155,20 @@ export function Headline({ org, funnel }) {
   const cards = [
     {
       key: "sent",
-      scope: "this round",
+      scope: "this cycle",
       value: num(sent),
       label: "applications sent",
-      body: "Every job somebody applied for this round, whether they found it "
+      body: "Every job somebody applied for this cycle, whether they found it "
           + "themselves or a colleague found it for them.",
       tone: "good",
     },
     {
       key: "shared",
-      scope: "this round",
+      scope: "this cycle",
       value: num(org.from_others),
       label: "of those, others' jobs",
       body: sent
-        ? `${Math.round((org.from_others / sent) * 100)}% of the round's work came off `
+        ? `${Math.round((org.from_others / sent) * 100)}% of the cycle's work came off `
           + "somebody else's sheet. This is the part that would not have happened "
           + "without everybody handing in to one place."
         : "Work that came off somebody else's sheet rather than their own.",
@@ -204,20 +204,20 @@ export function HeadlineKey({ org, funnel }) {
   return (
     <div className="stack" style={{ gap: 8, maxWidth: 720 }}>
       <p className="muted">
-        <b>Applications sent</b> — every job somebody applied for this round,
+        <b>Applications sent</b> — every job somebody applied for this cycle,
         whether they found it themselves or a colleague found it for them.
       </p>
       <p className="muted">
         <b>Of those, others&apos; jobs</b> — work that came off somebody else&apos;s
-        sheet{sent ? `, ${Math.round((org.from_others / sent) * 100)}% of the round` : ""}.
+        sheet{sent ? `, ${Math.round((org.from_others / sent) * 100)}% of the cycle` : ""}.
         This is the part that would not have happened without everybody handing
         in to one place.
       </p>
       <p className="muted">
         <b>Clients who wanted to talk</b> and <b>offers of work</b> are all-time,
         and cannot honestly be anything else: a client who replies three weeks
-        late is answering work from a round that closed, and counting that reply
-        against whichever round happens to be open would credit the wrong
+        late is answering work from a cycle that closed, and counting that reply
+        against whichever cycle happens to be open would credit the wrong
         fortnight.
       </p>
       {!funnel?.offers && (
@@ -261,15 +261,15 @@ export function DoubledUp({ org, history }) {
             ? <>Two people went out and found the same posting, so it was typed
                 in <b>{num(org.wasted_rows)}</b> {plural(org.wasted_rows, "time", "times")} more
                 than it needed to be — <b>{org.duplicate_pct}%</b> of everything typed
-                this round. Splitting up who searches where is what brings this down.</>
-            : <>Nobody found the same posting as anybody else this round. That is the
+                this cycle. Splitting up who searches where is what brings this down.</>
+            : <>Nobody found the same posting as anybody else this cycle. That is the
                 best this number gets.</>}
           {direction !== null && (
             <> {direction < 0
-              ? <>It is <b>{Math.abs(direction)} points lower</b> than the round before.</>
+              ? <>It is <b>{Math.abs(direction)} points lower</b> than the cycle before.</>
               : direction > 0
-                ? <>It is <b>{direction} points higher</b> than the round before.</>
-                : <>It is level with the round before.</>}</>
+                ? <>It is <b>{direction} points higher</b> than the cycle before.</>
+                : <>It is level with the cycle before.</>}</>
           )}
         </p>
       </div>
@@ -278,7 +278,7 @@ export function DoubledUp({ org, history }) {
         <div>
           <p className="hint" style={{ marginBottom: 8 }}>
             Share of the team's typing spent on a job somebody else had already found,
-            round by round. Lower is better.
+            cycle by cycle. Lower is better.
           </p>
           <div className="history">
             {trend.map((row) => {
@@ -317,7 +317,7 @@ function ListBar({ applied, skipped, pending }) {
   const share = (n) => `${(n / total) * 100}%`;
   return (
     <div className="listbar"
-         title={`${applied} applied for · ${skipped} turned down · ${pending} still to do`}>
+         title={`${applied} applied for · ${skipped} skipped · ${pending} still to do`}>
       <i style={{ width: share(applied), background: "var(--ok)" }} />
       <i style={{ width: share(skipped), background: "var(--n6)" }} />
       <i style={{ width: share(pending), background: "var(--n4)" }} />
@@ -329,7 +329,7 @@ export function ListLegend() {
   return (
     <div className="row legend" style={{ gap: 14 }}>
       <span><i style={{ background: "var(--ok)" }} />applied for</span>
-      <span><i style={{ background: "var(--n6)" }} />turned down, with a reason</span>
+      <span><i style={{ background: "var(--n6)" }} />skipped, with a reason</span>
       <span><i style={{ background: "var(--n4)" }} />still to do</span>
     </div>
   );

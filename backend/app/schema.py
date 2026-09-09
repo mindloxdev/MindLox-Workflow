@@ -38,6 +38,10 @@ already there, which is the truth — nobody was asked at the time.
 0 would read as "handed in nothing" on the manager's screen, so it is filled in
 from the sheets themselves on the first start after upgrading.
 
+Version 2.9 gave a cycle a clock. Two nullable-or-defaulted columns on
+`batches`; a cycle that predates them has `timer_minutes` 0, which is exactly
+what "nobody set a clock on this one" means, and no screen shows anything.
+
 Everything below is idempotent. A brand new database skips it entirely.
 """
 from __future__ import annotations
@@ -58,6 +62,10 @@ LATER_COLUMNS = {
         ("auto_build_minutes", "INTEGER DEFAULT 10"),
         ("last_built_at", "TIMESTAMP"),
         ("building_since", "TIMESTAMP"),
+        # v2.9 — the manager's clock. 0 on every cycle that predates it, which
+        # reads as "no clock was set", and no screen shows one.
+        ("timer_minutes", "INTEGER DEFAULT 0"),
+        ("timer_started_at", "TIMESTAMP"),
     ],
     # TRUE rather than 1, because Postgres will not cast an integer to boolean
     # in a column default and SQLite understands both. ADD COLUMN with a DEFAULT

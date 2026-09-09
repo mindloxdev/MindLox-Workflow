@@ -177,7 +177,7 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
         </div>
         <div className="stack" style={{ alignItems: "flex-end", gap: 8 }}>
           <CyclePicker batches={data.batches} value={batchId || data.batch?.id}
-                       label="Round" onChange={setBatchId} />
+                       onChange={setBatchId} />
           <DateRange {...dateRange} onChange={setDateRange} />
         </div>
       </div>

@@ -5,7 +5,7 @@ import EntryTable from "./EntryTable.jsx";
 import Interviews from "./Interviews.jsx";
 import JobRecord from "./JobRecord.jsx";
 import { ActionList, bdTodo } from "./Todo.jsx";
-import { Availability, CopyButton, CyclePicker, Empty, Segment, Skills } from "./widgets.jsx";
+import { Availability, CopyButton, CycleClock, CyclePicker, Empty, Segment, Skills } from "./widgets.jsx";
 
 const FIELD_LABELS = {
   url: "Job link",
@@ -45,7 +45,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
   // so it is the one status change that asks a question first.
   const [skipping, setSkipping] = useState(null);   // { id, title, company }
   const [skipReason, setSkipReason] = useState("");
-  // Turn it down for every profile this person runs. Off each time on purpose:
+  // Skip it for every profile this person runs. Off each time on purpose:
   // it is a decision about this job, not a setting, and a sticky checkbox
   // would quietly retire postings from a market nobody meant to close.
   const [skipEverywhere, setSkipEverywhere] = useState(false);
@@ -173,7 +173,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
     try {
       const saved = await api.setStatus(assignmentId, status, reason, everyProfile);
       if (saved.also_skipped) {
-        setNote({ text: `Turned down here and on ${saved.also_skipped} other `
+        setNote({ text: `Skipped here and on ${saved.also_skipped} other `
                       + `profile${saved.also_skipped === 1 ? "" : "s"} you run. `
                       + "It will not come back to any of them." });
         loadSheets();
@@ -286,7 +286,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
               <input type="checkbox" checked={skipEverywhere} style={{ marginTop: 3 }}
                      onChange={(e) => setSkipEverywhere(e.target.checked)} />
               <span>
-                <b>Turn it down for all {profiles.length} profiles I run</b>
+                <b>Skip it for all {profiles.length} profiles I run</b>
                 <p className="hint" style={{ marginTop: 2, maxWidth: 620 }}>
                   Leave this off when the job is simply wrong for{" "}
                   <b>{profile?.name}</b> — it may suit one of your other names.
@@ -301,8 +301,8 @@ export default function BdHome({ pane = null, onPaneSeen }) {
           <div className="row" style={{ gap: 10 }}>
             <button onClick={confirmSkip} disabled={!skipReason.trim()}>
               {skipEverywhere && profiles.length > 1
-                ? `Turn it down for all ${profiles.length}`
-                : "Turn it down"}
+                ? `Skip it for all ${profiles.length}`
+                : "Skip it"}
             </button>
             <button className="ghost" onClick={() => setSkipping(null)}>Keep it on the list</button>
           </div>
@@ -314,13 +314,19 @@ export default function BdHome({ pane = null, onPaneSeen }) {
           <h1>Your work</h1>
           <p className="muted" style={{ marginTop: 3 }}>
             Applying as <b>{profile?.name}</b>{profile?.headline ? ` · ${profile.headline}` : ""}
-            {batch && <> · round <b>{batch.name}</b>, {batch.status === "open"
+            {batch && <> · cycle <b>{batch.name}</b>, {batch.status === "open"
               ? "still taking jobs"
               : "closed — anything new goes into the next one"}</>}.
           </p>
         </div>
-        <CyclePicker batches={batches} value={batchId} label="Round"
-                     onChange={setBatchId} />
+        <div className="row" style={{ gap: 10 }}>
+          {/* The manager's clock. Absent unless one is set, and gone the
+              moment it runs out — nothing about the cycle changes then, so a
+              spent clock sitting over the work would be a warning about
+              nothing. */}
+          <CycleClock batch={batch} />
+          <CyclePicker batches={batches} value={batchId} onChange={setBatchId} />
+        </div>
       </div>
 
       {profiles.length > 1 && (
@@ -359,7 +365,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
         empty={{
           title: "You are straight.",
           body: "No client is waiting on a time, nothing is past a deadline, your "
-              + "to-do list is clear and this round's jobs are handed in.",
+              + "to-do list is clear and this cycle's jobs are handed in.",
         }} />
 
       {/* What the client is actually being handed. Below the list, because it
@@ -487,7 +493,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
               <div>
                   <h2>Own jobs — what {profile?.name} found</h2>
                 <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-                  The jobs you went out and applied for yourself this round. Handing
+                  The jobs you went out and applied for yourself this cycle. Handing
                   them in is what stops a colleague spending their morning finding the
                   same ones — and it is what puts them on other people&apos;s lists as
                   their <b>others&apos; jobs</b>.
@@ -680,7 +686,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                               {job.turned_down_by?.length > 0 && (
                                 <div style={{ fontSize: 11, color: "var(--warn-text)" }}
                                      title="A skip is per profile: two profiles are two candidates, and a job wrong for one market can be right for the other.">
-                                  you turned this down under{" "}
+                                  you skipped this under{" "}
                                   {job.turned_down_by.join(", ")}
                                 </div>
                               )}
@@ -755,7 +761,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                   </div>
                   )}
                   <p className="hint">
-                    <b>To do</b> stays on this round until you get to it — it does not
+                    <b>To do</b> stays on this cycle until you get to it — it does not
                     follow you into the next one. <b>Applied</b> or <b>skipped</b>
                     {" "}retires it from {profile?.name} for good.
                   </p>

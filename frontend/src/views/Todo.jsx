@@ -189,8 +189,8 @@ export function bdTodo({ diary, tests, batch, toDo, handedIn, profile, go }) {
       level: "next",
       title: `${toDo} others' ${plural(toDo, "job is", "jobs are")} waiting on you.`,
       body: "Jobs a colleague found that this profile has never applied to. "
-          + "Anything you leave as still-to-do comes back next round; anything "
-          + "you turn down is gone from this profile for good.",
+          + "Anything you leave as still-to-do comes back next cycle; anything "
+          + "you skip is gone from this profile for good.",
       action: { label: "Open others' jobs", onClick: () => go("new") },
     });
   }
@@ -199,7 +199,7 @@ export function bdTodo({ diary, tests, batch, toDo, handedIn, profile, go }) {
     items.push({
       key: "sheet",
       level: "next",
-      title: "You have not handed in your own jobs for this round.",
+      title: "You have not handed in your own jobs for this cycle.",
       body: "Until you do, the jobs you found are not shared out — and a "
           + "colleague can spend their morning finding them all over again.",
       action: { label: "Add them", onClick: () => go("applied") },

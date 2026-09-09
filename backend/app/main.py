@@ -461,6 +461,21 @@ class BatchIn(BaseModel):
     auto_build_minutes: int = 10
 
 
+class TimerIn(BaseModel):
+    """Set the cycle clock, or move it. Exactly one of the two is used.
+
+    `minutes` sets the whole budget and starts it counting from now — what a
+    manager means by "they get two hours". `add_minutes` moves the budget
+    without touching the start, so adding fifteen minutes to a clock that has
+    been running an hour leaves an hour already spent; it may be negative,
+    which is how time is taken away.
+
+    A budget of zero is no clock at all, and clears the one that is there.
+    """
+    minutes: Optional[int] = None
+    add_minutes: Optional[int] = None
+
+
 class MappingIn(BaseModel):
     mapping: dict
 
@@ -533,6 +548,43 @@ def profile_json(p: Profile, owner: Optional[User] = None,
             "label": p.name if not p.headline else f"{p.name} · {p.headline}"}
 
 
+# The longest clock a manager can set: a working week. Not a rule about how
+# people should work, just a guard against a typo — "120" meant as minutes and
+# typed as hours is a clock nobody would notice was wrong.
+MAX_TIMER_MINUTES = 7 * 24 * 60
+
+
+def timer_window(b: Batch) -> tuple[Optional[dt.datetime], Optional[dt.datetime]]:
+    """(start, end) of the cycle clock in UTC, or (None, None) if none is set."""
+    minutes = b.timer_minutes or 0
+    start = _naive_utc(b.timer_started_at)
+    if minutes <= 0 or start is None:
+        return None, None
+    return start, start + dt.timedelta(minutes=minutes)
+
+
+def timer_json(b: Batch) -> dict:
+    """The clock as the screens need it.
+
+    `seconds_left` is the whole of the contract with the browser. It is counted
+    here, on the server, so a laptop whose clock is twenty minutes fast does not
+    show its owner twenty minutes less time than everybody else; the browser
+    ticks down from it locally and re-reads it on its next poll. Once it reaches
+    zero it stays at zero — the clock is over, not counting up. Nothing about the
+    cycle changes at that moment, so the number is only ever something to know.
+    """
+    start, end = timer_window(b)
+    if start is None:
+        return {"timer_minutes": 0, "timer_started_at": None, "timer_ends_at": None,
+                "timer_seconds_left": 0, "timer_running": False}
+    left = (end - _naive_utc(utcnow())).total_seconds()
+    return {"timer_minutes": b.timer_minutes or 0,
+            "timer_started_at": start.isoformat(),
+            "timer_ends_at": end.isoformat(),
+            "timer_seconds_left": max(0, int(left)),
+            "timer_running": left > 0}
+
+
 def batch_json(b: Batch) -> dict:
     return {"id": b.id, "name": b.name, "status": b.status, "quota": b.quota,
             "mode": b.mode, "one_per_client": b.one_per_client,
@@ -540,6 +592,7 @@ def batch_json(b: Batch) -> dict:
             "created_at": b.created_at.isoformat() if b.created_at else None,
             "computed_at": b.computed_at.isoformat() if b.computed_at else None,
             "last_built_at": b.last_built_at.isoformat() if b.last_built_at else None,
+            **timer_json(b),
             "report": b.report or {}}
 
 
@@ -778,7 +831,7 @@ def list_batches(db: Session = Depends(get_db), _: User = Depends(current_user))
 def create_batch(body: BatchIn, db: Session = Depends(get_db), admin: User = Depends(admin_only)):
     if body.mode not in MODES:
         raise HTTPException(400, f"Mode must be one of {', '.join(MODES)}.")
-    batch = Batch(name=body.name.strip() or f"Batch {utcnow():%d %b}",
+    batch = Batch(name=body.name.strip() or f"Cycle {utcnow():%d %b}",
                   quota=max(1, body.quota), mode=body.mode,
                   one_per_client=body.one_per_client,
                   auto_build_minutes=max(0, body.auto_build_minutes),
@@ -792,7 +845,7 @@ def create_batch(body: BatchIn, db: Session = Depends(get_db), admin: User = Dep
 def get_batch(batch_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
     batch = db.get(Batch, batch_id)
     if not batch:
-        raise HTTPException(404, "No such batch.")
+        raise HTTPException(404, "No such cycle.")
     uploads = db.scalars(select(Upload).where(Upload.batch_id == batch_id)).all()
     profiles = {p.id: p for p in db.scalars(select(Profile)).all()}
     owners = {u.id: u.name for u in db.scalars(select(User)).all()}
@@ -820,9 +873,9 @@ def upload_sheet(batch_id: int, profile_id: int = Form(...), file: UploadFile = 
                  db: Session = Depends(get_db), user: User = Depends(current_user)):
     batch = db.get(Batch, batch_id)
     if not batch:
-        raise HTTPException(404, "No such batch.")
+        raise HTTPException(404, "No such cycle.")
     if batch.status != "open":
-        raise HTTPException(400, "This batch is already computed. Ask your manager to open a new one.")
+        raise HTTPException(400, "This cycle is closed. Ask your manager to open a new one.")
     profile = owned_profile(profile_id, db, user)
 
     too_big = "That file is over 15 MB. Split it or remove extra columns."
@@ -943,7 +996,7 @@ def save_entries(batch_id: int, profile_id: int, body: EntriesIn,
     """
     batch = db.get(Batch, batch_id)
     if not batch:
-        raise HTTPException(404, "No such batch.")
+        raise HTTPException(404, "No such cycle.")
     if batch.status != "open":
         raise HTTPException(400, "This cycle is closed. Ask your manager to open a new one.")
     profile = owned_profile(profile_id, db, user)
@@ -1090,7 +1143,7 @@ def compute(batch_id: int, db: Session = Depends(get_db), _: User = Depends(admi
     """Build the lists now. The timer calls build_lists directly."""
     batch = db.get(Batch, batch_id)
     if not batch:
-        raise HTTPException(404, "No such batch.")
+        raise HTTPException(404, "No such cycle.")
     return build_lists(db, batch)
 
 
@@ -1428,7 +1481,7 @@ def close_batch(batch_id: int, db: Session = Depends(get_db), _: User = Depends(
     """Stop the rebuilds and stop accepting sheets. Lists stay readable."""
     batch = db.get(Batch, batch_id)
     if not batch:
-        raise HTTPException(404, "No such batch.")
+        raise HTTPException(404, "No such cycle.")
     batch.status = "computed"
     db.commit()
     return batch_json(batch)
@@ -1438,10 +1491,150 @@ def close_batch(batch_id: int, db: Session = Depends(get_db), _: User = Depends(
 def reopen_batch(batch_id: int, db: Session = Depends(get_db), _: User = Depends(admin_only)):
     batch = db.get(Batch, batch_id)
     if not batch:
-        raise HTTPException(404, "No such batch.")
+        raise HTTPException(404, "No such cycle.")
     batch.status = "open"
     db.commit()
     return batch_json(batch)
+
+
+# --------------------------------------------------------------------------- #
+# The cycle clock
+# --------------------------------------------------------------------------- #
+
+@app.put("/api/batches/{batch_id}/timer")
+def set_timer(batch_id: int, body: TimerIn, db: Session = Depends(get_db),
+              _: User = Depends(admin_only)):
+    """Set the clock, move it, or take it away.
+
+    Setting a budget starts it from now; adding to one already running leaves
+    the time already spent spent, which is what "give them another twenty
+    minutes" means. Taking away more than is left simply ends it.
+    """
+    batch = db.get(Batch, batch_id)
+    if not batch:
+        raise HTTPException(404, "No such cycle.")
+
+    if body.minutes is not None:
+        minutes = body.minutes
+        # A fresh budget starts a fresh clock. Anything else would mean a
+        # manager who set two hours at nine and two hours again at eleven had
+        # given nobody any more time, which is the opposite of what they did.
+        started = _naive_utc(utcnow())
+    elif body.add_minutes is not None:
+        minutes = (batch.timer_minutes or 0) + body.add_minutes
+        started = _naive_utc(batch.timer_started_at) or _naive_utc(utcnow())
+    else:
+        raise HTTPException(400, "Say how many minutes to set, or how many to add.")
+
+    if minutes > MAX_TIMER_MINUTES:
+        raise HTTPException(400, "A clock cannot run longer than a week.")
+    if minutes <= 0:
+        # No clock at all, and the window it measured goes with it. Clearing is
+        # the deliberate act; simply running out of time is not, and leaves both
+        # of these alone so the figures below still have a window to report on.
+        batch.timer_minutes = 0
+        batch.timer_started_at = None
+    else:
+        batch.timer_minutes = minutes
+        batch.timer_started_at = started
+    db.commit()
+    return batch_json(batch)
+
+
+@app.get("/api/batches/{batch_id}/timer-report")
+def timer_report(batch_id: int, db: Session = Depends(get_db), _: User = Depends(admin_only)):
+    """What each profile did inside the window the clock measured.
+
+    The point of the clock is this screen. Every figure is dated by when
+    somebody actually marked something, so it says what was done between the
+    manager setting the time and the time running out — not what the cycle
+    holds in total, which the report above already says.
+
+    `late` is the same work done after the whistle. It is counted rather than
+    hidden because a profile that finished everything twenty minutes over is a
+    different story from one that stopped, and flattening the two into "did not
+    finish in time" would tell the manager the wrong one.
+    """
+    batch = db.get(Batch, batch_id)
+    if not batch:
+        raise HTTPException(404, "No such cycle.")
+    start, end = timer_window(batch)
+    if start is None:
+        raise HTTPException(404, "No clock has been set on this cycle.")
+
+    profiles = {p.id: p for p in db.scalars(select(Profile)).all()}
+    owners = {u.id: u.name for u in db.scalars(select(User)).all()}
+
+    # Everyone the cycle actually concerns: whoever handed a sheet in, plus
+    # whoever was given a list. A profile pulled in on skills alone handed in
+    # nothing and would otherwise be missing from the one screen that asks
+    # what it did with the work it was given.
+    taking_part = set(db.scalars(select(Upload.profile_id)
+                                 .where(Upload.batch_id == batch_id)).all())
+    taking_part |= set(db.scalars(select(Assignment.profile_id)
+                                  .where(Assignment.batch_id == batch_id)).all())
+    taking_part.discard(None)
+
+    figures = {pid: {"own_jobs": 0, "applied": 0, "skipped": 0,
+                     "late": 0, "given": 0, "left": 0} for pid in taking_part}
+
+    # Others' jobs: dated by the moment the BD marked the row.
+    marked_in_window: set[tuple[int, int]] = set()
+    for profile_id, job_id, status, changed in db.execute(
+        select(Assignment.profile_id, Assignment.job_id, Assignment.status,
+               Assignment.status_changed_at)
+        .where(Assignment.batch_id == batch_id)
+    ).all():
+        row = figures.setdefault(profile_id, {"own_jobs": 0, "applied": 0, "skipped": 0,
+                                              "late": 0, "given": 0, "left": 0})
+        row["given"] += 1
+        when = _naive_utc(changed)
+        if status == "pending" or when is None:
+            row["left"] += 1
+            continue
+        if when < start:
+            continue                      # marked before the manager set the clock
+        if when <= end:
+            row[status] = row.get(status, 0) + 1
+            marked_in_window.add((profile_id, job_id))
+        else:
+            # Done, but after time was up. Still outstanding as far as the
+            # clock is concerned, and counted again as late.
+            row["left"] += 1
+            row["late"] += 1
+
+    # Own jobs: the applications this cycle first recorded for a profile inside
+    # the window, less the ones that are really others' jobs the BD marked
+    # applied — those are already counted above and must not be counted twice.
+    for profile_id, job_id in db.execute(
+        select(Application.profile_id, Application.job_id)
+        .where(Application.batch_id == batch_id,
+               Application.created_at >= start, Application.created_at <= end)
+    ).all():
+        if (profile_id, job_id) in marked_in_window:
+            continue
+        row = figures.setdefault(profile_id, {"own_jobs": 0, "applied": 0, "skipped": 0,
+                                              "late": 0, "given": 0, "left": 0})
+        row["own_jobs"] += 1
+
+    rows = []
+    for pid, row in figures.items():
+        profile = profiles.get(pid)
+        done = row["applied"] + row["skipped"]
+        rows.append({
+            "id": pid,
+            "name": profile.name if profile else "?",
+            "headline": profile.headline if profile else "",
+            "person": owners.get(profile.user_id) if profile else None,
+            **row,
+            "done": done,
+            "done_pct": round(done * 100 / row["given"]) if row["given"] else 0,
+        })
+    rows.sort(key=lambda r: (-(r["own_jobs"] + r["done"]), r["name"]))
+
+    return {**batch_json(batch),
+            "started_at": start.isoformat(), "ends_at": end.isoformat(),
+            "profiles": rows}
 
 
 # --------------------------------------------------------------------------- #
@@ -1561,7 +1754,7 @@ async def _auto_build_loop() -> None:
 def report(batch_id: int, db: Session = Depends(get_db), _: User = Depends(admin_only)):
     batch = db.get(Batch, batch_id)
     if not batch or not batch.last_built_at:
-        raise HTTPException(404, "That batch has not been built yet.")
+        raise HTTPException(404, "That cycle has not been built yet.")
 
     profiles = {p.id: p for p in db.scalars(select(Profile)).all()}
     owners = {u.id: u.name for u in db.scalars(select(User)).all()}
@@ -3131,7 +3324,7 @@ def download_profile_sheet(batch_id: int, profile_id: int, db: Session = Depends
     profile = owned_profile(profile_id, db, user)
     jobs = _assignment_rows(db, batch_id, profile.id)
     if not jobs:
-        raise HTTPException(404, "Nothing has been dispatched to this profile in this batch.")
+        raise HTTPException(404, "Nothing has been dispatched to this profile in this cycle.")
     data = exports.assignment_workbook(profile.name, jobs)
     filename = f"{profile.name.replace(' ', '-').lower()}-batch-{batch_id}.xlsx"
     return Response(data, media_type=XLSX,

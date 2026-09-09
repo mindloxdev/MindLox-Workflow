@@ -66,10 +66,12 @@ are not discussing the same number.
 | **Others' jobs** | Jobs a colleague found, that the cycle handed over, and this profile then applied for. |
 | **Applications sent** | Own jobs + others' jobs. The week's work, whole. |
 | **Applied** | Marked as gone out. |
-| **Skipped** | Turned down, with a reason. Never offered to that profile again. |
-| **Still to do** | Handed over and not yet answered either way. Comes back next round. |
+| **Skipped** | Looked at and said no to, with a reason. Never offered to that profile again. Never called "turned down". |
+| **Still to do** | Handed over and not yet answered either way. Comes back next cycle. |
 | **Found twice** | A posting two profiles both went out and found. The second search was time spent for nothing. |
-| **Round** | One cycle of work: everybody hands in, the lists are built, the team works them. |
+| **Cycle** | One dispatch: everybody hands in, the lists are built, the team works them. Never a "round" and never a "batch" — `batches` is a table name, not a word anybody reads. |
+| **Round** | One conversation in an interview ladder. Only ever that. |
+| **Cycle clock** | A countdown the manager sets on a cycle. Every BD sees the same one; it changes nothing when it ends. |
 
 Nothing on a screen is named after the column it is stored in. The database
 still says `logged`, `assigned` and `done_pct`; a person reading the app never
@@ -412,7 +414,7 @@ the half somebody is asked about at the end of a quarter.
    every five minutes.
 
    Nothing is lost by leaving them out. The row stays on the cycle that
-   dispatched it, that cycle stays in the **Round** picker whether it is open or
+   dispatched it, that cycle stays in the **Cycle** picker whether it is open or
    closed, and while it is open its own timer keeps re-offering it.
 
 4. **The lists rebuild themselves.** A cycle stays open while the team works it.
@@ -456,7 +458,7 @@ application is work counted twice, and with two cycles open it is the other half
 of the job that hopped between them.
 
 A **skipped** job also leaves the list the instant it is marked. There is
-nothing further to do about a posting this profile has turned down, and it is
+nothing further to do about a posting this profile has skipped, and it is
 never offered again — so a greyed-out row that can only be scrolled past is not
 worth the space. The mark itself is kept underneath, because that row is what
 stops the job coming back. Downloads keep every row, skipped included: a
@@ -483,7 +485,7 @@ than the screen it came from.
 ### The same job, arriving on a different link
 
 A profile is never handed a posting it has already used — applied for at any
-time, or turned down. That was blocked on the *row*, and the row was not
+time, or skipped. That was blocked on the *row*, and the row was not
 enough.
 
 One posting reaches this system by several routes. A colleague browsing pastes
@@ -491,8 +493,8 @@ the listing; a colleague who actually applied pastes whatever the apply button
 left in the address bar. Workday appends `/apply/autofillWithResume`, iCIMS
 appends `/job`, most others append `/apply`. Those are different URLs, so they
 fingerprint differently, so the posting arrived as a fresh row with no history
-against it — and the round handed somebody work they had already done, or a job
-they had already turned down.
+against it — and the cycle handed somebody work they had already done, or a job
+they had already skipped.
 
 So the block reads the **posting**, using the fingerprint's own ladder with one
 rung widened:
@@ -587,16 +589,16 @@ on — others' jobs still sitting unworked on your list — with the button that
 takes you to them.
 
 Then four figures, not the ten that used to be there, four of which needed a
-tooltip to be read at all: **applications sent** this round, how many of those
+tooltip to be read at all: **applications sent** this cycle, how many of those
 were **others' jobs**, how many were **also found by somebody else**, and how
 many **clients wanted to talk**. Each says which window it counts over, because
-two of them are this round and two are all-time and nothing in the words says
-which. The rest — what was handed over, what was turned down, how far through
+two of them are this cycle and two are all-time and nothing in the words says
+which. The rest — what was handed over, what was skipped, how far through
 the list you are, the streak, today's interviews, tests outstanding — sits under
 them in one quiet row, because none of those is worth a headline on its own.
 
 Below that: what the applications turned into, any conversation that cleared a
-round and then stopped, the tests clients set, and a fortnight of daily
+cycle and then stopped, the tests clients set, and a fortnight of daily
 activity. **Break it down by profile** folds the per-profile cards away, since
 most mornings the total is the answer and a row of cards between the figures and
 the diary is just distance.
@@ -667,7 +669,7 @@ quiet, results nobody recorded.
 matters* opens when somebody presses the row. Six of these with a paragraph
 apiece was the screenful that pushed everything else below the fold.
 
-**The four numbers.** Applications sent this round, how many of those came off a
+**The four numbers.** Applications sent this cycle, how many of those came off a
 colleague's sheet, and — all-time, because a reply lands weeks after the
 application that earned it — clients who wanted to talk and offers of work. Nine
 tiles were a wall the eye slid off, and the ones that mattered were in the
@@ -683,7 +685,7 @@ and rate, so nothing depends on telling hues apart.
 
 **Effort spent twice.** Said as typing rather than as a percentage. *94 jobs
 were typed in twice* is a morning somebody spent twice; *18%* is a statistic.
-With the trend beside it, round by round — the number this whole tool exists to
+With the trend beside it, cycle by cycle — the number this whole tool exists to
 bring down, and the only place you can see whether it is going down.
 
 **How each person is doing.** One row per person, everything they run added
@@ -695,8 +697,8 @@ can see their own figures — opens on that row.
 Two targets per row, never one doing two jobs: the **name** opens their screen,
 the **chevron** opens their numbers. A row that did both would navigate away
 from somebody trying to read it. It opens on **today**, because the question a manager walks in with is
-"has the team started", and a round-to-date total answers that identically on a
-busy Monday and a dead one. A **This round** switch sits beside the heading, and
+"has the team started", and a cycle-to-date total answers that identically on a
+busy Monday and a dead one. A **This cycle** switch sits beside the heading, and
 dates typed into the filter take over from both — somebody who has just asked
 for 1–15 September did not mean today. Only that table follows the switch:
 narrowing the four numbers, the drop and the duplication to one morning would
@@ -720,7 +722,7 @@ meant a manager pressed a row and nothing appeared to happen — what they had
 asked for was a screenful further down, past the table they had just used. The
 same is true of a profile from **every profile** and of **Open** on a developer.
 It scrolls to the top on the way in and back to the row you pressed on the way
-out, and the round, the dates and the Today/This round switch are as you left
+out, and the cycle, the dates and the Today/This cycle switch are as you left
 them.
 
 **Everything else starts closed.** What the applications turned into, effort
@@ -754,7 +756,7 @@ Two of those sections are worth calling out:
 
 ### Clients
 
-Every other screen is organised by profile, by person or by round. None of them
+Every other screen is organised by profile, by person or by cycle. None of them
 answers the question a manager is actually asked on the phone: **have we been to
 Northwind before, and how did it go.**
 
@@ -1136,7 +1138,7 @@ postings.
 
 ### A skip belongs to the profile, and can cover all of them
 
-Turning a job down is scoped to the profile it was turned down under. Two
+Skipping a job is scoped to the profile it was skipped under. Two
 profiles are two candidates in two markets: a posting wrong for an Accounts
 Receivable identity is often exactly right for a Customer Service one, and
 blocking both would destroy work.
@@ -1157,8 +1159,8 @@ already being worked. Those apply to every name. So the dialog asks, once:
 Off by default. Ticked, the posting is gone from every name that person applies
 under and does not come back. Two guards: it never overwrites a profile that
 has already **applied** — that is work, not a rejection — and it only records
-against profiles actually taking part in that round, because writing a skip
-against a dormant profile would tell a manager it turned down a job it was
+against profiles actually taking part in that cycle, because writing a skip
+against a dormant profile would tell a manager it skipped a job it was
 never offered.
 
 And when it *is* only per-profile, the other list says so instead of looking
@@ -1299,10 +1301,52 @@ are what a real run would write.
    deadline they gave — or none, if they gave none. The developer picks it up
    there, and anything still open past its deadline is called out on both
    screens.
-8. **Close cycle** when the round is done. That stops the rebuilds and stops
+8. **Close cycle** when the cycle is done. That stops the rebuilds and stops
    accepting sheets. Reopen it if you closed too early. Interviews are not
    attached to a cycle and are unaffected: a reply that arrives three weeks
    late belongs to the work that earned it.
+
+### The cycle clock
+
+**Clock on this cycle**, on the manager's screen, sets a countdown for the whole
+team — *give this cycle 120 minutes*, or one of the presets. It starts the
+moment you set it, and every BD working that cycle sees the same number ticking
+down beside their cycle picker. **Add 15 min** and **Take 15 min** move the
+window without restarting it, so a clock that has been running an hour has still
+been running an hour when you give them twenty minutes more.
+
+**Nothing happens when it reaches zero.** The cycle stays open, sheets still go
+in, jobs are still marked, the lists still rebuild. The clock simply leaves the
+BD's screen. That is deliberate: a clock that locked people out would cost the
+team real work to make a point about timekeeping, and the point is only ever
+worth *knowing*.
+
+What it is for is the table underneath it — **what the window caught**, per
+profile:
+
+| Column | What it counts |
+|---|---|
+| Own jobs | Jobs that profile logged on its own sheet inside the window |
+| Others' jobs applied for | Rows off a colleague's sheet marked applied inside the window |
+| Others' jobs skipped | Rows skipped inside the window, with a reason |
+| Left | Still untouched when the time ran out |
+| Late | Marked after the whistle — counted, not hidden |
+| Done | Applied + skipped, as a share of everything handed to that profile |
+
+Every figure is dated by when somebody actually marked something, so it says
+what was done *between* the clock starting and the time running out — not what
+the cycle holds in total, which the report above it already says. **Late** is
+counted separately because a profile that finished everything twenty minutes
+over is a different story from one that stopped, and folding the two together
+would tell you the wrong one.
+
+The seconds left are counted on the server and sent to the browser, so a laptop
+whose own clock is twenty minutes fast does not show its owner twenty minutes
+less time than everybody else.
+
+**Clear** takes the clock away, and the window it measured goes with it. Simply
+running out of time does not: the cycle keeps its window so these figures still
+have one to report on.
 
 Sheets can be any of `.xlsx`, `.xls`, `.csv`, `.tsv`. The mapper reads job link,
 job title, company, job description link, platform, applied on and optional
@@ -1366,7 +1410,7 @@ four rounds reads as one story rather than four unrelated rows. One nullable
 column on `interviews`. Every interview already recorded has no predecessor,
 which is exactly what an empty column says.
 
-Version 2.6 added the reason a job was turned down, and the count of rows on a
+Version 2.6 added the reason a job was skipped, and the count of rows on a
 sheet the matcher can actually use. The second is backfilled on first start
 rather than left at zero, because a zero there reads as *handed in nothing* on
 the manager's screen, which is worse than the mismatch it was fixing.
@@ -1389,6 +1433,10 @@ Version 2.8 added the client screen. One new table, `client_notes`, which
 `create_all` makes on its own — nothing to migrate and nothing to backfill,
 because the clients themselves are derived from the company names already on
 `jobs` and were never stored.
+
+Version 2.9 gave a cycle a clock. Two columns on `batches`, and a cycle that
+predates them has `timer_minutes` 0 — which reads as *nobody set a clock on this
+one*, and no screen shows anything.
 
 All of these are restart-only. Back up the file first anyway — it is one `cp`.
 

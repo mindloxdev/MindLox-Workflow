@@ -6,7 +6,7 @@ import { DateRange, Loading, Segment, STAGE_LABELS } from "./widgets.jsx";
 /** Clients.
  *
  * Every other screen in this app is organised by profile, by person or by
- * round. None of them can answer the question a manager is actually asked on
+ * cycle. None of them can answer the question a manager is actually asked on
  * the phone: have we been to Northwind before, and how did it go.
  *
  * Nothing here is a new source of truth. It is the same postings, the same

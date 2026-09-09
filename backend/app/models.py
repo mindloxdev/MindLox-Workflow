@@ -286,6 +286,24 @@ class Batch(Base):
     # Minutes between automatic rebuilds; 0 means only when asked.
     auto_build_minutes = Column(Integer, nullable=False, default=10)
     last_built_at = Column(DateTime, nullable=True)
+
+    # A stopwatch the manager sets for the whole team, in minutes, counting
+    # down from the moment it is set. One clock, not one per person: it is the
+    # window this cycle is meant to be worked in, and everybody sees the same
+    # number so "two hours" means the same thing to all of them.
+    #
+    # Advisory, and deliberately so. Nothing about the cycle changes when it
+    # runs out — sheets still come in, jobs are still marked, the lists still
+    # rebuild. The clock simply leaves the BD's screen, and the manager gets
+    # the figures for what each profile did inside the window. A clock that
+    # locked people out would cost the team real work to make a point about
+    # timekeeping, and the point is only ever worth knowing, not enforcing.
+    #
+    # 0 minutes means no clock at all. The start is kept after the time is up
+    # so the manager can still read the window it measured; clearing it is a
+    # separate, deliberate act.
+    timer_minutes = Column(Integer, nullable=False, default=0)
+    timer_started_at = Column(DateTime, nullable=True)
     # Held for the duration of a build so two workers, or a manager and the
     # timer, cannot rebuild the same cycle at once.
     building_since = Column(DateTime, nullable=True)

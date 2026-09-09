@@ -302,14 +302,22 @@ export function Empty({ title, children, action }) {
  * a developer reading the same number must read the same word for it, or they
  * are not discussing the same number.
  *
+ *   Cycle             one dispatch: sheets go in, lists come out. Never a
+ *                     "round" and never a "batch" — a round is a client's
+ *                     interview round and nothing else, and "batch" is only a
+ *                     table name.  (batch / batches in the API)
+ *   Round             one conversation in an interview ladder. Only ever that.
  *   Own jobs          jobs somebody went out and found on their own sheet,
  *                     and applied for.  (own_found / logged)
  *   Others' jobs      jobs a colleague found, handed over, and this profile
  *                     then applied for.  (from_others / applied)
+ *   Others' jobs given  what the cycle put on a profile's list, whether or not
+ *                     anything has been done with it yet.  (assigned)
  *   Applications sent own jobs + others' jobs. The week's work, whole.
  *   Applied           marked as gone out.
- *   Skipped           turned down, with a reason.
- *   Still to do       handed over and not yet answered either way.
+ *   Skipped           a job this profile looked at and said no to, with a
+ *                     reason. Never "turned down".  (skipped)
+ *   Still to do       handed over and not yet answered either way.  (pending)
  *   Found twice       a posting two profiles both went out and found.
  *
  * Nothing on a screen is named after the column it is stored in.
@@ -668,6 +676,63 @@ export function CyclePicker({ batches, value, onChange, label = "Cycle" }) {
         ))}
       </select>
     </label>
+  );
+}
+
+/** How long is left on the manager's clock, as a person reads a clock.
+ *
+ * Hours only appear once there is an hour to show, so a two-hour window opens
+ * as 1:59:47 and a twenty-minute one as 19:47 rather than 0:19:47.
+ */
+export function clockText(seconds) {
+  const whole = Math.max(0, Math.floor(seconds));
+  const hh = Math.floor(whole / 3600);
+  const mm = Math.floor((whole % 3600) / 60);
+  const ss = whole % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return hh ? `${hh}:${pad(mm)}:${pad(ss)}` : `${mm}:${pad(ss)}`;
+}
+
+/** The cycle clock, counting down.
+ *
+ * The server sends the seconds left rather than a deadline, so a laptop whose
+ * own clock is twenty minutes fast does not show its owner twenty minutes less
+ * time than everybody else. This ticks down from that number locally and
+ * re-syncs whenever the cycle is re-read, which the screens already do once a
+ * minute.
+ *
+ * It disappears at zero, deliberately. Nothing happens when the time runs out —
+ * the cycle stays open, sheets still go in, jobs are still marked — so leaving
+ * a red 0:00 on the screen would be a warning about nothing, sitting where the
+ * work is. The figures for what happened inside the window are the manager's
+ * to read, on the manager's screen.
+ */
+export function CycleClock({ batch, label = "Time left on this cycle" }) {
+  const seconds = batch?.timer_seconds_left ?? 0;
+  const [left, setLeft] = React.useState(seconds);
+
+  React.useEffect(() => { setLeft(batch?.timer_seconds_left ?? 0); },
+    [batch?.id, batch?.timer_seconds_left, batch?.timer_ends_at]);
+
+  React.useEffect(() => {
+    const tick = setInterval(() => setLeft((n) => (n > 0 ? n - 1 : 0)), 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  if (!batch?.timer_minutes || left <= 0) return null;
+
+  // The last ten minutes are the only ones worth colouring. Earlier than that
+  // the number is information; later than that it is a nudge.
+  const tone = left <= 600 ? "off" : left <= 1800 ? "warn" : "on";
+  return (
+    <span className={`pill ${tone}`} title={label} role="timer" aria-label={
+      `${label}: ${clockText(left)}`}>
+      <span aria-hidden="true">&#9201;</span>
+      <b className="mono" style={{ fontSize: "var(--t-sm)", letterSpacing: "0.01em" }}>
+        {clockText(left)}
+      </b>
+      <span>left</span>
+    </span>
   );
 }
 

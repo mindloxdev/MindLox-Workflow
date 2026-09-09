@@ -204,7 +204,7 @@ function ProfileDetail({ profileId, batchId, dateRange, onClose }) {
           <div className="card scroll" style={{ marginTop: 8 }}>
             <table>
               <thead>
-                <tr><th>Round</th><th className="num">Own jobs</th>
+                <tr><th>Cycle</th><th className="num">Own jobs</th>
                     <th className="num">Others&apos; jobs given</th>
                     <th className="num">Applied</th></tr>
               </thead>
@@ -226,7 +226,7 @@ function ProfileDetail({ profileId, batchId, dateRange, onClose }) {
       <div>
         <h3>The last {data.recent.length} jobs applied for</h3>
         <p className="muted" style={{ margin: "3px 0 8px" }}>
-          Newest first, across every round this profile has taken part in.
+          Newest first, across every cycle this profile has taken part in.
         </p>
         <div className="card scroll">
           <table>
@@ -324,8 +324,8 @@ export default function ManagerDashboard({ onOpenBatches }) {
   const [saving, setSaving] = useState(false);
   // What window the per-person table counts over. Opens on today, because the
   // question a manager actually walks in with is "has the team started", and
-  // a round-to-date total answers that identically on a busy Monday and a dead
-  // one. The round is a click away, and setting dates takes over from both.
+  // a cycle-to-date total answers that identically on a busy Monday and a dead
+  // one. The cycle is a click away, and setting dates takes over from both.
   const [when, setWhen] = useState("today");
   const [todayRows, setTodayRows] = useState(null);
   // Where the team screen was when somebody was opened, so closing them puts
@@ -343,8 +343,8 @@ export default function ManagerDashboard({ onOpenBatches }) {
     }
   }, [dateRange]);
 
-  // Today's slice, fetched alongside the round's. Its own request because the
-  // rest of the screen is deliberately about the whole round — the four
+  // Today's slice, fetched alongside the cycle's. Its own request because the
+  // rest of the screen is deliberately about the whole cycle — the four
   // numbers, the drop, the duplication — and narrowing all of that to one
   // morning would make every one of them read as a bad week.
   const loadToday = useCallback(async (id) => {
@@ -416,8 +416,8 @@ export default function ManagerDashboard({ onOpenBatches }) {
   // table they had just used, and they had to scroll to find out whether the
   // click had worked at all.
   //
-  // Nothing is thrown away: this component stays mounted, so the round, the
-  // dates and the Today/This round switch are all exactly as they left them
+  // Nothing is thrown away: this component stays mounted, so the cycle, the
+  // dates and the Today/This cycle switch are all exactly as they left them
   // when they come back.
   if (openDev) {
     return (
@@ -484,20 +484,20 @@ export default function ManagerDashboard({ onOpenBatches }) {
           <h1>How the team is doing</h1>
           <p className="muted" style={{ marginTop: 3 }}>
             {batch
-              ? <>Round <b>{batch.name}</b> · {batch.status === "open"
+              ? <>Cycle <b>{batch.name}</b> · {batch.status === "open"
                   ? "still running" : "finished"}
                   {batch.last_built_at && <> · lists last shared out {sinceText(batch.last_built_at)}</>}</>
-              : "No round of work has been started yet."}
+              : "No cycle of work has been started yet."}
           </p>
         </div>
         <div className="row">
           <CyclePicker batches={data.batches} value={batchId || batch?.id}
-                       label="Round" onChange={(id) => {
+                       onChange={(id) => {
             setBatchId(id);
             setOpenProfile(null);
           }} />
           <DateRange {...dateRange} onChange={setDateRange} />
-          {onOpenBatches && <button className="ghost" onClick={onOpenBatches}>Run the round</button>}
+          {onOpenBatches && <button className="ghost" onClick={onOpenBatches}>Run the cycle</button>}
         </div>
       </div>
 
@@ -529,7 +529,7 @@ export default function ManagerDashboard({ onOpenBatches }) {
                 : showingToday
                   ? <>Counting <b>today so far</b>, on Eastern time — a row of zeros at
                       nine in the morning is a team that has not started yet.</>
-                  : <>Counting the <b>whole round</b>.</>}
+                  : <>Counting the <b>whole cycle</b>.</>}
             </p>
           </div>
           {!datesSet && (
@@ -538,7 +538,7 @@ export default function ManagerDashboard({ onOpenBatches }) {
               value={when}
               onChange={setWhen}
               items={[{ key: "today", label: "Today" },
-                      { key: "round", label: "This Week" }]} />
+                      { key: "round", label: "This cycle" }]} />
           )}
         </div>
         {peopleRows

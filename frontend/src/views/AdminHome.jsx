@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { api, download, safeUrl } from "../api.js";
-import { sinceText } from "./widgets.jsx";
+import { CycleClock, sinceText } from "./widgets.jsx";
 
 function Matrix({ names, rows }) {
   const offDiagonal = rows.flatMap((row, i) => row.filter((_, j) => i !== j));
@@ -48,6 +48,10 @@ export default function AdminHome() {
   const [draft, setDraft] = useState({
     name: "", quota: 40, mode: "cover", one_per_client: false, auto_build_minutes: 10,
   });
+  // The clock. `timerDraft` is only the number in the box before it is set;
+  // once a clock is running the cycle itself carries it.
+  const [timerDraft, setTimerDraft] = useState(120);
+  const [figures, setFigures] = useState(null);
 
   // Rebuilds happen on the server whether or not anyone is looking, so the
   // screen refreshes itself to stay honest about what the lists contain.
@@ -56,6 +60,7 @@ export default function AdminHome() {
     const tick = setInterval(() => {
       api.report(current).then(setReport).catch(() => {});
       api.getBatch(current).then(setDetail).catch(() => {});
+      api.timerReport(current).then(setFigures).catch(() => setFigures(null));
     }, 30000);
     return () => clearInterval(tick);
   }, [current]);
@@ -72,8 +77,11 @@ export default function AdminHome() {
   useEffect(() => {
     if (!current) return;
     setReport(null);
+    setFigures(null);
     api.getBatch(current).then(setDetail).catch(() => setDetail(null));
     api.report(current).then(setReport).catch(() => setReport(null));
+    // 404 here is the ordinary case — most cycles never have a clock set.
+    api.timerReport(current).then(setFigures).catch(() => setFigures(null));
   }, [current]);
 
   const create = async () => {
@@ -129,7 +137,7 @@ export default function AdminHome() {
       await api.closeBatch(current);
       await refresh(current);
       setDetail(await api.getBatch(current));
-      setNote({ text: "Cycle closed. Open a new one when the next round starts." });
+      setNote({ text: "Cycle closed. Open a new one when the next cycle starts." });
     } catch (err) {
       setNote({ bad: true, text: err.message });
     } finally {
@@ -151,13 +159,46 @@ export default function AdminHome() {
     }
   };
 
+  /** Set, move or clear the clock. `payload` is passed straight through. */
+  const setTimer = async (payload, said) => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const saved = await api.setCycleTimer(current, payload);
+      setDetail(await api.getBatch(current));
+      await refresh(current);
+      setFigures(await api.timerReport(current).catch(() => null));
+      setNote({ text: said(saved) });
+    } catch (err) {
+      setNote({ bad: true, text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startClock = () => {
+    const minutes = Math.max(1, Math.min(7 * 24 * 60, Number(timerDraft) || 0));
+    return setTimer({ minutes }, () =>
+      `The clock is running: ${minutes} minutes. Everyone working this cycle sees `
+      + "the same countdown, and nothing stops when it ends.");
+  };
+
+  const moveClock = (delta) => setTimer({ add_minutes: delta }, (saved) =>
+    saved.timer_minutes
+      ? `${delta > 0 ? "Added" : "Took back"} ${Math.abs(delta)} minutes — `
+        + `the window is now ${saved.timer_minutes} minutes from when it started.`
+      : "That took the whole clock away.");
+
+  const clearClock = () => setTimer({ minutes: 0 }, () =>
+    "Clock cleared. Nobody sees a countdown, and the figures for the window go with it.");
+
   const handedIn = detail?.uploads?.length || 0;
 
   return (
     <div className="stack">
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
-          <h1>Batches</h1>
+          <h1>Cycles</h1>
           <p className="muted" style={{ marginTop: 3 }}>
             Open a cycle, wait for everyone's sheet, then build the lists.
           </p>
@@ -257,7 +298,7 @@ export default function AdminHome() {
           {detail.status === "open" && detail.auto_build_minutes > 0 && (
             <div className="notice ok">
               <b>Building itself.</b> The lists rebuild every {detail.auto_build_minutes} minutes
-              while this round is open, so whatever your team has added is already counted.
+              while this cycle is open, so whatever your team has added is already counted.
               {detail.last_built_at
                 ? ` Last built ${sinceText(detail.last_built_at)}.`
                 : handedIn < 2
@@ -280,6 +321,121 @@ export default function AdminHome() {
               are needed before anything can be compared.
             </div>
           )}
+
+          {/* The clock. One for the whole cycle, not one per person: it is the
+              window this cycle is meant to be worked in, so everybody sees the
+              same number and "two hours" means the same thing to all of them.
+              It changes nothing when it runs out — that is the point of the
+              figures underneath, which are worth knowing rather than
+              enforcing. */}
+          <div className="card pad stack" style={{ gap: 10 }}>
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <b style={{ fontFamily: "var(--display)" }}>Clock on this cycle</b>
+                <p className="muted" style={{ marginTop: 3, maxWidth: 620 }}>
+                  A countdown on every BD&apos;s screen for this cycle. Nothing stops when
+                  it reaches zero — sheets still come in and jobs are still marked. The
+                  clock simply leaves their screen, and what each profile did inside the
+                  window shows up here.
+                </p>
+              </div>
+              {detail.timer_minutes > 0 && detail.timer_running && <CycleClock batch={detail} />}
+            </div>
+
+            {detail.timer_minutes > 0 ? (
+              <>
+                <div className="row" style={{ gap: 8 }}>
+                  <span className={detail.timer_running ? "pill on" : "pill"}>
+                    {detail.timer_minutes} minute window
+                  </span>
+                  <span className="muted">
+                    {/* No second copy of the countdown here. The pill above
+                        ticks every second and this only re-reads on the poll,
+                        so the two would sit side by side disagreeing. */}
+                    {detail.timer_running
+                      ? <>started {sinceText(detail.timer_started_at)}</>
+                      : <>time was up {sinceText(detail.timer_ends_at)}</>}
+                  </span>
+                  <span style={{ flex: 1 }} />
+                  <button className="ghost" onClick={() => moveClock(15)} disabled={busy}>
+                    Add 15 min
+                  </button>
+                  <button className="ghost" onClick={() => moveClock(-15)} disabled={busy}>
+                    Take 15 min
+                  </button>
+                  <button className="ghost" onClick={clearClock} disabled={busy}>
+                    Clear
+                  </button>
+                </div>
+                {!detail.timer_running && (
+                  <p className="hint" style={{ margin: 0 }}>
+                    Adding time to a clock that has already run out restarts the countdown
+                    on everyone&apos;s screen from wherever the new window ends.
+                  </p>
+                )}
+              </>
+            ) : (
+              <div className="row" style={{ gap: 8 }}>
+                <label>
+                  Give this cycle
+                  <input type="number" min="1" max="10080" value={timerDraft} style={{ width: 90 }}
+                         onChange={(e) => setTimerDraft(e.target.value)} />
+                  minutes
+                </label>
+                {[[30, "30 min"], [60, "1 hour"], [120, "2 hours"], [240, "4 hours"]].map(
+                  ([mins, label]) => (
+                    <button key={mins} className="pill" type="button"
+                            onClick={() => setTimerDraft(mins)}>{label}</button>
+                  ))}
+                <button onClick={startClock} disabled={busy}>Start the clock</button>
+              </div>
+            )}
+
+            {figures?.profiles?.length > 0 && (
+              <div className="stack" style={{ gap: 6 }}>
+                <b>{figures.timer_running ? "So far, inside the window" : "What the window caught"}</b>
+                <p className="hint" style={{ margin: 0, maxWidth: 660 }}>
+                  Dated by when somebody actually marked something, so this is the work
+                  done between the clock starting and the time running out — not what the
+                  cycle holds in total. <b>Late</b> is the same work finished after the
+                  whistle, counted rather than hidden: a profile that got everything done
+                  twenty minutes over is a different story from one that stopped.
+                </p>
+                <div className="card scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Profile</th><th>Run by</th>
+                        <th className="num">Own jobs</th>
+                        <th className="num">Others&apos; jobs applied for</th>
+                        <th className="num">Others&apos; jobs skipped</th>
+                        <th className="num">Left</th>
+                        <th className="num">Late</th>
+                        <th className="num">Done</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {figures.profiles.map((row) => (
+                        <tr key={row.id}>
+                          <td style={{ fontWeight: 500 }}>{row.name}</td>
+                          <td className="muted">{row.person || "—"}</td>
+                          <td className="num mono">{row.own_jobs}</td>
+                          <td className="num mono">{row.applied}</td>
+                          <td className="num mono">{row.skipped}</td>
+                          <td className="num mono">{row.left}</td>
+                          <td className="num mono"
+                              style={{ color: row.late ? "var(--bad-text)" : undefined }}>
+                            {row.late}
+                          </td>
+                          <td className="num mono">{row.done_pct}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="card scroll">
             <table>
@@ -394,7 +550,7 @@ export default function AdminHome() {
 
           {report.turned_down?.length > 0 && (
             <div>
-              <h3>Turned down, and why</h3>
+              <h3>Skipped, and why</h3>
               <p className="muted" style={{ margin: "3px 0 9px" }}>
                 A skip retires the posting from that profile for good — no later
                 cycle offers it again — so this is the only place the reasoning

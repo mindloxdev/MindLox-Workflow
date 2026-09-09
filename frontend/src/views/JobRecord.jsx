@@ -222,7 +222,7 @@ export default function JobRecord({ profiles = [], onOpenInterviews }) {
         <div className="card pad muted">
           {q ? `Nothing in the record matches “${q}”. Try the client name on its own — a job `
              + "added without a link is only findable by what was typed."
-             : "Nothing applied for yet. Jobs appear here once a round has been built."}
+             : "Nothing applied for yet. Jobs appear here once a cycle has been built."}
         </div>
       ) : (
         <>

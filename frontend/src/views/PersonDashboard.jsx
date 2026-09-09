@@ -58,15 +58,15 @@ export default function PersonDashboard({
           {!viewingAs && <h1>Your dashboard</h1>}
           <p className="muted" style={{ marginTop: viewingAs ? 0 : 3 }}>
             {batch
-              ? <>Round <b>{batch.name}</b> · {batch.status === "open"
+              ? <>Cycle <b>{batch.name}</b> · {batch.status === "open"
                   ? "still running, so these numbers are still moving" : "finished"}
                   {batch.last_built_at && <> · lists last shared out {sinceText(batch.last_built_at)}</>}</>
-              : "No round of work has been started yet."}
+              : "No cycle of work has been started yet."}
           </p>
         </div>
         <div className="stack" style={{ alignItems: "flex-end", gap: 8 }}>
           <CyclePicker batches={data.batches} value={batchId || batch?.id}
-                     label="Round" onChange={onBatchChange} />
+                     onChange={onBatchChange} />
           {onDateRangeChange && <DateRange {...dateRange} onChange={onDateRangeChange} />}
         </div>
       </div>
@@ -97,7 +97,7 @@ export default function PersonDashboard({
             <p className="muted" style={{ marginTop: 2 }}>
               {left === 0
                 ? "Nothing left to do. More land here as colleagues hand in what they found."
-                : `A colleague found these and nobody here has applied to them yet. Marking each one applied — or turned down, with a reason — is what stops it coming back next round.`}
+                : `A colleague found these and nobody here has applied to them yet. Marking each one applied — or skipped, with a reason — is what stops it coming back next cycle.`}
             </p>
           </div>
         </div>
@@ -111,17 +111,17 @@ export default function PersonDashboard({
           morning means they were not read. The rest are still below, in one
           quiet row, because none of them is worth a headline on their own. */}
       <BigFigures items={[
-        { key: "sent", scope: "this round",
+        { key: "sent", scope: "this cycle",
           value: totals.own_found + totals.from_others,
           label: "applications sent",
-          body: `Everything ${viewingAs || "you"} applied for this round, whether `
+          body: `Everything ${viewingAs || "you"} applied for this cycle, whether `
               + "it was found here or handed over by a colleague.",
           tone: "good" },
-        { key: "shared", scope: "this round", value: totals.from_others,
+        { key: "shared", scope: "this cycle", value: totals.from_others,
           label: "of those, others' jobs",
           body: "Work that came off somebody else's sheet. This is the part that "
               + "would not have happened without everybody handing in to one place." },
-        { key: "wasted", scope: "this round", value: totals.duplicates,
+        { key: "wasted", scope: "this cycle", value: totals.duplicates,
           label: "also found by somebody else",
           body: "A posting two people both went out and found. The search that "
               + "turned it up the second time was time spent for nothing.",
@@ -136,8 +136,8 @@ export default function PersonDashboard({
 
       <Tiles items={[
         { label: `others' jobs given to ${viewingAs || "you"}`, value: totals.assigned,
-          hint: "Found by a colleague and handed over this round." },
-        { label: "turned down, with a reason", value: totals.skipped },
+          hint: "Found by a colleague and handed over this cycle." },
+        { label: "skipped, with a reason", value: totals.skipped },
         { label: "of that list worked through", value: `${totals.done_pct}%` },
         { label: `day${data.streak === 1 ? "" : "s"} in a row with jobs added`,
           value: data.streak,

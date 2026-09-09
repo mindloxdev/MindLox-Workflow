@@ -137,6 +137,14 @@ export const api = {
   reopenBatch: (id) => request(`/batches/${id}/reopen`, { method: "POST" }),
   report: (id) => request(`/batches/${id}/report`),
 
+  // The cycle clock. `minutes` sets the whole budget and starts it from now;
+  // `add_minutes` moves the budget without touching the start, and may be
+  // negative. A budget of 0 takes the clock away.
+  setCycleTimer: (id, payload) =>
+    request(`/batches/${id}/timer`, { method: "PUT", body: payload }),
+  // What each profile did inside the window the clock measured. Manager only.
+  timerReport: (id) => request(`/batches/${id}/timer-report`),
+
   upload: (batchId, profileId, file) => {
     const form = new FormData();
     form.append("profile_id", profileId);
