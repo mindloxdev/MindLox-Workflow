@@ -333,6 +333,26 @@ export default function ManagerDashboard({ onOpenBatches }) {
   // they have to scroll through again.
   const cameFrom = useRef(0);
 
+  // Every route into somebody's screen goes through here, so there is one place
+  // that remembers where to come back to and one that scrolls to the top of
+  // what just opened — a new page that starts halfway down reads as broken.
+  //
+  // Declared here, above the early returns, and not down beside the rest of the
+  // handlers. A `const` is not hoisted: on any render that opened somebody's
+  // screen the component returned before the declaration ran, so the arrow
+  // handed to that screen's back button closed over a binding that was never
+  // initialised. Pressing **Back to the team** threw and the manager was stuck
+  // on the person they had opened.
+  const openDetail = (apply) => {
+    cameFrom.current = window.scrollY;
+    apply();
+    window.scrollTo({ top: 0 });
+  };
+  const closeDetail = (apply) => {
+    apply();
+    window.scrollTo({ top: cameFrom.current });
+  };
+
   const load = useCallback(async (id) => {
     try {
       const next = await api.overview(id, dateRange.dateFrom, dateRange.dateTo);
@@ -452,18 +472,6 @@ export default function ManagerDashboard({ onOpenBatches }) {
   const boardOpen = !!settings?.team_board_visible;
   const closedCount = people.filter((p) => p.role !== "admin" && !p.dashboard_visible).length;
 
-  // Every route into somebody's screen goes through here, so there is one
-  // place that remembers where to come back to and one that scrolls to the top
-  // of what just opened — a new page that starts halfway down reads as broken.
-  const openDetail = (apply) => {
-    cameFrom.current = window.scrollY;
-    apply();
-    window.scrollTo({ top: 0 });
-  };
-  const closeDetail = (apply) => {
-    apply();
-    window.scrollTo({ top: cameFrom.current });
-  };
   const openTheirScreen = (person) => openDetail(() => {
     setOpenPerson(person);
     setOpenProfile(null);
