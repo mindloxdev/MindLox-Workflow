@@ -45,10 +45,55 @@ const PLATFORM_OPTIONS = [
   "Other",
 ];
 
+/* One of the two lists a profile sits on once it is off the working screens.
+   Both are recoveries and both read the same, so they are one component and
+   differ only in what they are called and what the hint explains. Neither is
+   drawn at all when it is empty: a manager who has never switched anything off
+   should not be told about a list of nothing. */
+function OffList({ title, rows, hint, busy, onEnable }) {
+  if (!rows.length) return null;
+  return (
+    <section className="card pad">
+      <h2>{title}</h2>
+      <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>{hint}</p>
+      <div className="scroll" style={{ marginTop: 12 }}>
+        <table>
+          <thead>
+            <tr><th>Profile</th><th>Headline</th><th>Was run by</th><th /></tr>
+          </thead>
+          <tbody>
+            {rows.map((item) => (
+              <tr key={item.id}>
+                <td style={{ fontWeight: 500 }}>
+                  {item.name}
+                  {item.platform && (
+                    <div className="muted" style={{ fontSize: 11 }}>{item.platform}</div>
+                  )}
+                </td>
+                <td>{item.headline || <span className="muted">—</span>}</td>
+                <td>{item.owner || <span className="muted">nobody</span>}</td>
+                <td style={{ textAlign: "right" }}>
+                  <button disabled={busy} onClick={() => onEnable(item)}>Enable</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 export default function People() {
   const [people, setPeople] = useState([]);
   const [profiles, setProfiles] = useState([]);
-  const [retired, setRetired] = useState([]);
+  const [disabled, setDisabled] = useState([]);
+  const [deleted, setDeleted] = useState([]);
+  // Which person's row is open for editing, and the draft of it. One at a time:
+  // handing a seat over is deliberate work, not something to do to four rows at
+  // once and then wonder which took.
+  const [editing, setEditing] = useState(null);
+  const [draft, setDraft] = useState(null);
   const [person, setPerson] = useState(BLANK_PERSON);
   const [profile, setProfile] = useState(BLANK_PROFILE);
   const [note, setNote] = useState(null);
@@ -56,16 +101,18 @@ export default function People() {
 
   const load = async () => {
     try {
-      // The retired list is a recovery aid, not the screen. If it fails — an
+      // The two recovery lists are aids, not the screen. If either fails — an
       // older server, a role that may not ask — the rest still loads.
-      const [users, identities, gone] = await Promise.all([
+      const [users, identities, off, gone] = await Promise.all([
         api.listUsers(),
         api.listProfiles(),
-        api.listRetiredProfiles().catch(() => []),
+        api.listProfilesInState("disabled").catch(() => []),
+        api.listProfilesInState("deleted").catch(() => []),
       ]);
       setPeople(users);
       setProfiles(identities);
-      setRetired(gone);
+      setDisabled(off);
+      setDeleted(gone);
     } catch (err) {
       setNote({ bad: true, text: err.message });
     }
@@ -163,25 +210,15 @@ export default function People() {
     }
   };
 
-  const retire = async (item) => {
-    if (!window.confirm(
-      `Retire ${item.name}? Its application history stays, so nothing it has already ` +
-      `applied to will be offered to it again if you bring it back.`)) return;
-    try {
-      await api.retireProfile(item.id);
-      await load();
-    } catch (err) {
-      setNote({ bad: true, text: err.message });
-    }
-  };
-
-  const restore = async (item) => {
+  // Disable, delete and enable all end the same way, and none of them loses
+  // anything — so they share one path and differ only in what they say.
+  const act = async (run, said) => {
     setBusy(true);
     setNote(null);
     try {
-      await api.restoreProfile(item.id);
+      await run();
       await load();
-      setNote({ text: `${item.name} is back, with everything it had applied for.` });
+      if (said) setNote({ text: said });
     } catch (err) {
       setNote({ bad: true, text: err.message });
     } finally {
@@ -189,13 +226,74 @@ export default function People() {
     }
   };
 
-  const turnOff = async (item) => {
-    if (!window.confirm(`Switch off ${item.name}? Their past sheets stay, but they cannot sign in.`)) return;
+  const disableProfile = (item) => {
+    if (!window.confirm(
+      `Disable ${item.name}? It comes off the working lists and keeps everything — ` +
+      `so nothing it has already applied to will be offered to it again when you ` +
+      `enable it.`)) return;
+    act(() => api.disableProfile(item.id), `${item.name} is disabled.`);
+  };
+
+  const deleteProfile = (item) => {
+    if (!window.confirm(
+      `Delete ${item.name}? Every application, interview and assessment it left ` +
+      `behind stays exactly as it is, and the reports still count them. It keeps ` +
+      `its name too, so the work already recorded under it still adds up. You can ` +
+      `enable it again from the deleted list.`)) return;
+    act(() => api.deleteProfile(item.id),
+        `${item.name} is deleted. Its records are untouched.`);
+  };
+
+  const enableProfile = (item) =>
+    act(() => api.enableProfile(item.id),
+        `${item.name} is back, with everything it had applied for.`);
+
+  const disableUser = (item) => {
+    if (!window.confirm(
+      `Disable ${item.name}? They cannot sign in, but everything they did stays ` +
+      `and so do the profiles they run. Enable puts them straight back to work.`)) return;
+    act(() => api.disableUser(item.id), `${item.name} is disabled.`);
+  };
+
+  const enableUser = (item) =>
+    act(() => api.enableUser(item.id), `${item.name} can sign in again.`);
+
+  // Handing a seat over. The account keeps its id, so every profile it runs and
+  // every figure recorded against it comes with the new name — which is the
+  // point: reassigning profiles one by one would leave the work split between
+  // somebody who has gone and somebody who has just arrived.
+  const startEdit = (p) => {
+    setNote(null);
+    setEditing(p.id);
+    setDraft({ name: p.name, email: p.email, role: p.role, password: "" });
+  };
+
+  const cancelEdit = () => { setEditing(null); setDraft(null); };
+
+  const saveEdit = async (p) => {
+    const body = { name: draft.name, email: draft.email, role: draft.role };
+    if (draft.password) body.password = draft.password;
+    if (draft.password && draft.password.length < 8) {
+      setNote({ bad: true, text: "Use a password of at least 8 characters." });
+      return;
+    }
+    const renamed = draft.name.trim() !== p.name;
+    setBusy(true);
+    setNote(null);
     try {
-      await api.deactivateUser(item.id);
+      await api.updateUser(p.id, body);
+      cancelEdit();
       await load();
+      setNote({
+        text: renamed
+          ? `${p.name} is now ${draft.name.trim()} — the same account, so every ` +
+            `profile they ran came with it.`
+          : `${draft.name.trim()} updated.`,
+      });
     } catch (err) {
       setNote({ bad: true, text: err.message });
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -229,6 +327,13 @@ export default function People() {
         <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
             <b>On the board</b> decides whether a profile appears on the shared
             team board.
+          </p>
+        <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+            <b>Disable</b> takes a profile off the working lists for now.{" "}
+            <b>Delete</b> takes it off for good. Neither loses anything — the
+            applications, interviews and assessments stay exactly as they are, and
+            both keep the profile&rsquo;s name so the work recorded under it still
+            adds up.
           </p>
         <div className="row" style={{ marginTop: 12, flexWrap: "wrap" }}>
           <input placeholder="Profile name, e.g. Khuram" value={profile.name}
@@ -325,8 +430,11 @@ export default function People() {
                     {item.share_progress === false ? "hidden" : "shown"}
                   </label>
                 </td>
-                <td style={{ textAlign: "right" }}>
-                  <button className="link" onClick={() => retire(item)}>Retire</button>
+                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                  <button className="link" disabled={busy}
+                          onClick={() => disableProfile(item)}>Disable</button>
+                  <button className="link" disabled={busy} style={{ marginLeft: 10 }}
+                          onClick={() => deleteProfile(item)}>Delete</button>
                 </td>
               </tr>
             ))}
@@ -339,41 +447,16 @@ export default function People() {
         </table>
       </div>
 
-      {!!retired.length && (
-        <section className="card pad">
-          <h2>Retired profiles</h2>
-          <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            Off the lists, but still holding their names — which is why a new
-            profile cannot take one. Restore brings the profile back exactly as it
-            was, history and all, so nothing it already applied to is offered to
-            it twice.
-          </p>
-          <div className="scroll" style={{ marginTop: 12 }}>
-            <table>
-              <thead>
-                <tr><th>Profile</th><th>Headline</th><th>Was run by</th><th /></tr>
-              </thead>
-              <tbody>
-                {retired.map((item) => (
-                  <tr key={item.id}>
-                    <td style={{ fontWeight: 500 }}>
-                      {item.name}
-                      {item.platform && (
-                        <div className="muted" style={{ fontSize: 11 }}>{item.platform}</div>
-                      )}
-                    </td>
-                    <td>{item.headline || <span className="muted">—</span>}</td>
-                    <td>{item.owner || <span className="muted">nobody</span>}</td>
-                    <td style={{ textAlign: "right" }}>
-                      <button disabled={busy} onClick={() => restore(item)}>Restore</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+      <OffList title="Disabled profiles" rows={disabled} busy={busy} onEnable={enableProfile}
+               hint="Off the working lists for now, and still holding their names — which is
+                     why a new profile cannot take one. Enable brings the profile back
+                     exactly as it was, history and all." />
+
+      <OffList title="Deleted profiles" rows={deleted} busy={busy} onEnable={enableProfile}
+               hint="Off the lists for good, with everything they left behind intact: the
+                     applications, interviews and assessments are all still there and the
+                     reports still count them. They keep their names for that reason. Enable
+                     puts one back if you deleted it by mistake." />
 
       <section className="card pad">
         <h2>Add a person</h2>
@@ -384,6 +467,13 @@ export default function People() {
         <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
             The switch does not apply to a <b>developer</b>: their diary and resume are
             always theirs to see.
+          </p>
+        <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+            When somebody leaves and a new person takes their seat, <b>Edit</b> the
+            account rather than making a second one: change the name, the email and
+            the password, and every profile they ran comes with it. Making a new
+            account instead leaves the work split between a name that has gone and a
+            name that has just arrived.
           </p>
         <div className="row" style={{ marginTop: 12 }}>
           <input placeholder="Full name" value={person.name}
@@ -422,9 +512,28 @@ export default function People() {
                 : profiles.filter((item) => item.user_id === p.id);
               return (
                 <tr key={p.id} style={{ opacity: p.is_active ? 1 : 0.5 }}>
-                  <td style={{ fontWeight: 500 }}>{p.name}</td>
-                  <td className="mono" style={{ fontSize: 12 }}>{p.email}</td>
-                  <td className="muted">{ROLE_LABELS[p.role] || p.role}</td>
+                  <td style={{ fontWeight: 500 }}>
+                    {editing === p.id
+                      ? <input value={draft.name} style={{ width: 150 }}
+                               onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+                      : p.name}
+                  </td>
+                  <td className="mono" style={{ fontSize: 12 }}>
+                    {editing === p.id
+                      ? <input value={draft.email} type="email" style={{ width: 200 }}
+                               onChange={(e) => setDraft({ ...draft, email: e.target.value })} />
+                      : p.email}
+                  </td>
+                  <td className="muted">
+                    {editing === p.id
+                      ? <select value={draft.role}
+                                onChange={(e) => setDraft({ ...draft, role: e.target.value })}>
+                          <option value="bd">Business development</option>
+                          <option value="dev">Developer</option>
+                          <option value="admin">Manager</option>
+                        </select>
+                      : ROLE_LABELS[p.role] || p.role}
+                  </td>
                   <td>
                     {theirs.length
                       ? <span className="row" style={{ gap: 5 }}>
@@ -438,7 +547,7 @@ export default function People() {
                   </td>
                   <td>
                     <span className={p.is_active ? "pill on" : "pill off"}>
-                      {p.is_active ? "active" : "switched off"}
+                      {p.is_active ? "active" : "disabled"}
                     </span>
                   </td>
                   <td>
@@ -459,8 +568,28 @@ export default function People() {
                       </label>
                     )}
                   </td>
-                  <td style={{ textAlign: "right" }}>
-                    {p.is_active && <button className="link" onClick={() => turnOff(p)}>Switch off</button>}
+                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    {editing === p.id ? (
+                      <>
+                        <input placeholder="New password (optional)" type="text"
+                               value={draft.password} style={{ width: 170 }}
+                               onChange={(e) => setDraft({ ...draft, password: e.target.value })} />
+                        <button disabled={busy} style={{ marginLeft: 8 }}
+                                onClick={() => saveEdit(p)}>Save</button>
+                        <button className="link" style={{ marginLeft: 8 }}
+                                onClick={cancelEdit}>Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <button className="link" disabled={busy}
+                                onClick={() => startEdit(p)}>Edit</button>
+                        {p.is_active
+                          ? <button className="link" disabled={busy} style={{ marginLeft: 10 }}
+                                    onClick={() => disableUser(p)}>Disable</button>
+                          : <button disabled={busy} style={{ marginLeft: 10 }}
+                                    onClick={() => enableUser(p)}>Enable</button>}
+                      </>
+                    )}
                   </td>
                 </tr>
               );

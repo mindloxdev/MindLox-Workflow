@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import create_engine, delete, func, insert, or_, select, update
+from sqlalchemy import and_, create_engine, delete, func, insert, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from . import assessments, crm, dashboard, exports, ingest, interviews, matching
@@ -311,6 +311,17 @@ class UserIn(BaseModel):
 
 class UserPatch(BaseModel):
     dashboard_visible: Optional[bool] = None
+    # An account outlives the person holding it. When a BD leaves and a new one
+    # takes their seat, editing these three hands over every profile they ran
+    # and every figure recorded against them in one move — which is the point:
+    # reassigning the profiles instead would leave the work split between a name
+    # that has gone and a name that has just arrived.
+    name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    # Set when handing the seat over, so the person who left cannot sign in as
+    # the person who replaced them.
+    password: Optional[str] = None
 
 
 class ProfileIn(BaseModel):
@@ -606,7 +617,7 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(401, "That email and password do not match.")
     if not user.is_active:
-        raise HTTPException(403, "This account has been switched off.")
+        raise HTTPException(403, "This account has been disabled.")
     return {"token": make_token(user), "user": user_json(user)}
 
 
@@ -651,40 +662,119 @@ def create_user(body: UserIn, db: Session = Depends(get_db), _: User = Depends(a
 
 @app.patch("/api/users/{user_id}")
 def update_user(user_id: int, body: UserPatch, db: Session = Depends(get_db),
-                _: User = Depends(admin_only)):
-    """Open or close one person's dashboard."""
+                admin: User = Depends(admin_only)):
+    """One person's dashboard, and who the account now belongs to.
+
+    Handing a seat over is an edit rather than a transfer: the profiles, the
+    applications and the figures all hang off the account, so renaming it moves
+    the whole desk at once and nothing has to be reassigned row by row.
+    """
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(404, "No such person.")
     if body.dashboard_visible is not None:
         user.dashboard_visible = body.dashboard_visible
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(400, "A person needs a name.")
+        user.name = name
+    if body.email is not None:
+        email = body.email.strip().lower()
+        if not email:
+            raise HTTPException(400, "A person needs an email to sign in with.")
+        clash = db.scalar(select(User).where(User.email == email, User.id != user_id))
+        if clash:
+            raise HTTPException(409, f"{clash.name} already uses that email.")
+        user.email = email
+    if body.role is not None and body.role != user.role:
+        if body.role not in ROLES:
+            raise HTTPException(400, f"Role must be one of {', '.join(ROLES)}.")
+        if user_id == admin.id:
+            raise HTTPException(400, "You cannot change your own role — "
+                                     "ask another manager to do it.")
+        # A profile may only name a developer as its developer, so moving
+        # somebody out of that role would leave those profiles pointing at
+        # somebody the rules say cannot be there.
+        if user.role == "dev" and body.role != "dev":
+            behind = db.scalars(select(Profile.name).where(
+                Profile.dev_user_id == user_id, Profile.deleted_at.is_(None))).all()
+            if behind:
+                raise HTTPException(400,
+                                    f"{user.name} is the developer behind "
+                                    f"{', '.join(behind)}. Put someone else behind "
+                                    "them first, or this profile stops being a "
+                                    "developer the client can meet.")
+        user.role = body.role
+    if body.password is not None:
+        if len(body.password) < 8:
+            raise HTTPException(400, "Use a password of at least 8 characters.")
+        user.password_hash = hash_password(body.password)
+    db.commit()
+    return user_json(user)
+
+
+@app.post("/api/users/{user_id}/disable")
+def disable_user(user_id: int, db: Session = Depends(get_db), admin: User = Depends(admin_only)):
+    """They cannot sign in. Everything they did stays, and so do the profiles
+    they run — enable puts them straight back to work."""
+    if user_id == admin.id:
+        raise HTTPException(400, "You cannot disable your own account.")
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "No such person.")
+    user.is_active = False
+    db.commit()
+    return user_json(user)
+
+
+@app.post("/api/users/{user_id}/enable")
+def enable_user(user_id: int, db: Session = Depends(get_db), _: User = Depends(admin_only)):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "No such person.")
+    user.is_active = True
     db.commit()
     return user_json(user)
 
 
 @app.delete("/api/users/{user_id}")
 def deactivate_user(user_id: int, db: Session = Depends(get_db), admin: User = Depends(admin_only)):
-    if user_id == admin.id:
-        raise HTTPException(400, "You cannot switch off your own account.")
-    user = db.get(User, user_id)
-    if not user:
-        raise HTTPException(404, "No such person.")
-    user.is_active = False
-    db.commit()
-    return {"ok": True}
+    """The older spelling of disable, kept so anything still calling it works."""
+    return disable_user(user_id, db, admin)
 
 
 # --------------------------------------------------------------------------- #
 # Profiles — the identities jobs are applied under
 # --------------------------------------------------------------------------- #
 
+# The three lists a profile can be on. Only "on" is a working screen; the other
+# two exist so a manager can find a profile they switched off and put it back.
+PROFILE_STATES = ("on", "disabled", "deleted")
+
+
+def _state_filter(state: str):
+    """Which rows belong to one of the three lists.
+
+    Deleting sets `is_active` false as well as stamping `deleted_at`, so every
+    query written before deleting existed — and there are many, all asking for
+    `is_active == True` — keeps excluding exactly what it should.
+    """
+    if state == "deleted":
+        return Profile.deleted_at.isnot(None)
+    if state == "disabled":
+        return and_(Profile.is_active == False, Profile.deleted_at.is_(None))  # noqa: E712
+    return and_(Profile.is_active == True, Profile.deleted_at.is_(None))  # noqa: E712
+
+
 def _name_clash(db: Session, name: str,
                 exclude_id: Optional[int] = None) -> Optional[Profile]:
-    """The profile already holding this name, retired ones included.
+    """The profile already holding this name — disabled and deleted ones too.
 
-    Retirement only switches a profile off the lists; the row keeps its name and
-    its history, so it has to keep blocking the name too — otherwise the same
-    identity ends up split across two ids.
+    Switching a profile off only takes it off the lists; the row keeps its name
+    and its history, so it has to keep blocking the name too. Otherwise the same
+    identity ends up split across two ids and every figure counted under it is
+    half the truth.
     """
     query = select(Profile).where(func.lower(Profile.name) == name.lower())
     if exclude_id is not None:
@@ -693,34 +783,40 @@ def _name_clash(db: Session, name: str,
 
 
 def _clash_message(clash: Profile) -> str:
-    """Why the name is taken — and, when the holder is retired, where it went.
+    """Why the name is taken — and, when the holder is off the lists, where.
 
-    A retired profile is filtered out of every list, so saying only "there is
-    already a profile called X" sends a manager hunting a row that will not be
-    on the screen.
+    A disabled or deleted profile appears on no working screen, so saying only
+    "there is already a profile called X" sends a manager hunting a row that is
+    not there to find.
     """
+    if clash.deleted_at is not None:
+        return (f"{clash.name} is deleted, and a deleted profile keeps its name so "
+                "the work already recorded under it still adds up. Enable it from "
+                "the deleted list below to use it again.")
     if not clash.is_active:
-        return (f"{clash.name} is retired, and a retired profile keeps its name. "
-                "Restore it from the retired list below instead of making a "
-                "second one — its history comes back with it.")
+        return (f"{clash.name} is disabled, and a disabled profile keeps its name. "
+                "Enable it from the disabled list below instead of making a second "
+                "one — its history comes back with it.")
     return (f"There is already a profile called {clash.name}. "
             "Two profiles with one name would split its history in half.")
 
 
 @app.get("/api/profiles")
-def list_profiles(mine: bool = False, retired: bool = False,
+def list_profiles(mine: bool = False, state: str = "on",
                   db: Session = Depends(get_db),
                   user: User = Depends(current_user)):
     """Managers see every profile. A BD sees the ones they run, a developer the
     ones they are sold under.
 
-    `retired=true` is the manager's recovery list: the rows retirement switched
-    off. They are worth showing on their own screen because they still hold
-    their names against anything new.
+    `state` picks which of the three lists. `disabled` and `deleted` are the
+    manager's recovery lists — rows on no working screen that still hold their
+    names against anything new, which is the only way to find them again.
     """
-    if retired and user.role != "admin":
-        raise HTTPException(403, "Only a manager can see retired profiles.")
-    query = select(Profile).where(Profile.is_active == (not retired))  # noqa: E712
+    if state not in PROFILE_STATES:
+        raise HTTPException(400, f"State must be one of {', '.join(PROFILE_STATES)}.")
+    if state != "on" and user.role != "admin":
+        raise HTTPException(403, "Only a manager can see profiles that are off the lists.")
+    query = select(Profile).where(_state_filter(state))
     if user.role == "dev":
         query = query.where(Profile.dev_user_id == user.id)
     elif mine or user.role != "admin":
@@ -842,46 +938,77 @@ def update_profile(profile_id: int, body: ProfilePatch, db: Session = Depends(ge
                         db.get(User, profile.dev_user_id) if profile.dev_user_id else None)
 
 
-@app.delete("/api/profiles/{profile_id}")
-def retire_profile(profile_id: int, db: Session = Depends(get_db),
-                   _: User = Depends(admin_only)):
+def _profile_or_404(db: Session, profile_id: int) -> Profile:
     profile = db.get(Profile, profile_id)
     if not profile:
         raise HTTPException(404, "No such profile.")
+    return profile
+
+
+def _profile_out(db: Session, profile: Profile) -> dict:
+    return profile_json(profile,
+                        db.get(User, profile.user_id) if profile.user_id else None,
+                        db.get(User, profile.dev_user_id) if profile.dev_user_id else None)
+
+
+@app.post("/api/profiles/{profile_id}/disable")
+def disable_profile(profile_id: int, db: Session = Depends(get_db),
+                    _: User = Depends(admin_only)):
+    """Off the working lists, everything kept. The way back is enable.
+
+    A deleted profile that is disabled stays deleted — there is one way back
+    from both, and it is the same one.
+    """
+    profile = _profile_or_404(db, profile_id)
     profile.is_active = False
     db.commit()
-    return {"ok": True}
+    return _profile_out(db, profile)
 
 
-@app.post("/api/profiles/{profile_id}/restore")
-def restore_profile(profile_id: int, db: Session = Depends(get_db),
-                    _: User = Depends(admin_only)):
-    """Put a retired profile back on the lists — what retiring has always
-    promised is reversible.
+@app.delete("/api/profiles/{profile_id}")
+def delete_profile(profile_id: int, db: Session = Depends(get_db),
+                   _: User = Depends(admin_only)):
+    """Off the lists for good, with every record it left behind intact.
 
-    Nothing else is touched, so the history it kept while it was off comes back
+    The row is never removed. `interviews` and `assessments` are ON DELETE
+    CASCADE, so a real delete would take the diary and the outstanding take-home
+    tests with it, and `applications` and `assignments` carry the history every
+    report counts. Deleting is therefore a stamp, and the name stays reserved
+    because those records still carry it.
+    """
+    profile = _profile_or_404(db, profile_id)
+    if profile.deleted_at is None:
+        profile.deleted_at = utcnow()
+    profile.is_active = False
+    db.commit()
+    return _profile_out(db, profile)
+
+
+@app.post("/api/profiles/{profile_id}/enable")
+def enable_profile(profile_id: int, db: Session = Depends(get_db),
+                   _: User = Depends(admin_only)):
+    """Put a profile back on the working lists, from disabled or from deleted.
+
+    Nothing else is touched, so everything it kept while it was off comes back
     with it and the duplicate guard still knows every posting it has applied to.
-    Restoring one that is already active is not an error: the caller asked for a
+    Enabling one that is already on is not an error: the caller asked for a
     profile on the lists, and it is.
     """
-    profile = db.get(Profile, profile_id)
-    if not profile:
-        raise HTTPException(404, "No such profile.")
-    if not profile.is_active:
+    profile = _profile_or_404(db, profile_id)
+    if not profile.is_active or profile.deleted_at is not None:
         # `ix_profiles_name` is unique but case-sensitive, while the clash checks
-        # are not — so the pair a restore can still walk into is a case variant
+        # are not — so the pair enabling can still walk into is a case variant
         # written straight to the database, by a hand-edit or an importer, while
         # this row was off the lists. Two live profiles under one name, spelled
         # differently, is the thing those checks exist to stop.
         clash = _name_clash(db, profile.name, exclude_id=profile.id)
         if clash:
             raise HTTPException(409, f"A profile called {clash.name} was made while "
-                                     "this one was retired. Rename one of them first.")
+                                     "this one was off the lists. Rename one of them first.")
         profile.is_active = True
+        profile.deleted_at = None
         db.commit()
-    return profile_json(profile,
-                        db.get(User, profile.user_id) if profile.user_id else None,
-                        db.get(User, profile.dev_user_id) if profile.dev_user_id else None)
+    return _profile_out(db, profile)
 
 
 # --------------------------------------------------------------------------- #

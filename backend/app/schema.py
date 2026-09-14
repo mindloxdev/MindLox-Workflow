@@ -72,6 +72,9 @@ LATER_COLUMNS = {
     # fills the existing rows, so profiles that predate the team board are on it.
     "profiles": [
         ("share_progress", "BOOLEAN DEFAULT TRUE"),
+        # v3.0 — deleting a profile without losing what it did. NULL on every
+        # existing row, which reads correctly: nothing has been deleted yet.
+        ("deleted_at", "TIMESTAMP"),
         # v2.2 — the developer behind the identity, and what a client is handed
         # when it applies. Every one is optional and empty by default, so a
         # workspace that upgrades and never fills any of them in behaves

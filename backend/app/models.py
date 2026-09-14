@@ -227,7 +227,21 @@ class Profile(Base):
     headline = Column(String(160), nullable=False, default="")
     platform = Column(String(120), nullable=False, default="")
     user_id = Column(Integer, ForeignKey("users.id"), index=True)  # who runs it
+    # Three states in two columns, because every query that already asks for
+    # `is_active == True` has to keep meaning "on the working lists":
+    #
+    #   on            is_active, deleted_at IS NULL
+    #   disabled      not is_active, deleted_at IS NULL   — off for now
+    #   deleted       not is_active, deleted_at set       — off for good
+    #
+    # Deleting never removes the row. Applications, assignments, interviews and
+    # assessments all hang off `profile_id`, two of them ON DELETE CASCADE, so a
+    # real delete would take the history with it — and the history is the thing
+    # worth keeping. The name stays reserved for the same reason: the old
+    # records still carry it, and a second profile under that name would split
+    # them across two ids.
     is_active = Column(Boolean, nullable=False, default=True)
+    deleted_at = Column(DateTime, nullable=True)
     # Whether this profile's progress appears on the shared team board. The
     # board as a whole is gated by a workspace switch the manager holds; this
     # takes one profile off it without hiding everybody.

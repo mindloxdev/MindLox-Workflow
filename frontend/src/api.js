@@ -151,15 +151,19 @@ export const api = {
   listDevelopers: () => request("/developers"),
   createUser: (payload) => request("/users", { method: "POST", body: payload }),
   updateUser: (id, payload) => request(`/users/${id}`, { method: "PATCH", body: payload }),
-  deactivateUser: (id) => request(`/users/${id}`, { method: "DELETE" }),
+  disableUser: (id) => request(`/users/${id}/disable`, { method: "POST" }),
+  enableUser: (id) => request(`/users/${id}/enable`, { method: "POST" }),
 
   listProfiles: () => request("/profiles"),
-  listRetiredProfiles: () => request("/profiles?retired=true"),
+  // The manager's recovery lists: profiles on no working screen that still
+  // hold their names, which is the only way to find them again.
+  listProfilesInState: (state) => request(`/profiles?state=${state}`),
   getProfile: (id) => request(`/profiles/${id}`),
   createProfile: (payload) => request("/profiles", { method: "POST", body: payload }),
   updateProfile: (id, payload) => request(`/profiles/${id}`, { method: "PATCH", body: payload }),
-  retireProfile: (id) => request(`/profiles/${id}`, { method: "DELETE" }),
-  restoreProfile: (id) => request(`/profiles/${id}/restore`, { method: "POST" }),
+  disableProfile: (id) => request(`/profiles/${id}/disable`, { method: "POST" }),
+  enableProfile: (id) => request(`/profiles/${id}/enable`, { method: "POST" }),
+  deleteProfile: (id) => request(`/profiles/${id}`, { method: "DELETE" }),
 
   listBatches: () => request("/batches"),
   createBatch: (payload) => request("/batches", { method: "POST", body: payload }),
