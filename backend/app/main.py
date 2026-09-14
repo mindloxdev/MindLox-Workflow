@@ -678,12 +678,49 @@ def deactivate_user(user_id: int, db: Session = Depends(get_db), admin: User = D
 # Profiles — the identities jobs are applied under
 # --------------------------------------------------------------------------- #
 
+def _name_clash(db: Session, name: str,
+                exclude_id: Optional[int] = None) -> Optional[Profile]:
+    """The profile already holding this name, retired ones included.
+
+    Retirement only switches a profile off the lists; the row keeps its name and
+    its history, so it has to keep blocking the name too — otherwise the same
+    identity ends up split across two ids.
+    """
+    query = select(Profile).where(func.lower(Profile.name) == name.lower())
+    if exclude_id is not None:
+        query = query.where(Profile.id != exclude_id)
+    return db.scalar(query)
+
+
+def _clash_message(clash: Profile) -> str:
+    """Why the name is taken — and, when the holder is retired, where it went.
+
+    A retired profile is filtered out of every list, so saying only "there is
+    already a profile called X" sends a manager hunting a row that will not be
+    on the screen.
+    """
+    if not clash.is_active:
+        return (f"{clash.name} is retired, and a retired profile keeps its name. "
+                "Restore it from the retired list below instead of making a "
+                "second one — its history comes back with it.")
+    return (f"There is already a profile called {clash.name}. "
+            "Two profiles with one name would split its history in half.")
+
+
 @app.get("/api/profiles")
-def list_profiles(mine: bool = False, db: Session = Depends(get_db),
+def list_profiles(mine: bool = False, retired: bool = False,
+                  db: Session = Depends(get_db),
                   user: User = Depends(current_user)):
     """Managers see every profile. A BD sees the ones they run, a developer the
-    ones they are sold under."""
-    query = select(Profile).where(Profile.is_active == True)  # noqa: E712
+    ones they are sold under.
+
+    `retired=true` is the manager's recovery list: the rows retirement switched
+    off. They are worth showing on their own screen because they still hold
+    their names against anything new.
+    """
+    if retired and user.role != "admin":
+        raise HTTPException(403, "Only a manager can see retired profiles.")
+    query = select(Profile).where(Profile.is_active == (not retired))  # noqa: E712
     if user.role == "dev":
         query = query.where(Profile.dev_user_id == user.id)
     elif mine or user.role != "admin":
@@ -713,10 +750,9 @@ def create_profile(body: ProfileIn, db: Session = Depends(get_db),
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "Give the profile a name — whatever the client sees.")
-    clash = db.scalar(select(Profile).where(func.lower(Profile.name) == name.lower()))
+    clash = _name_clash(db, name)
     if clash:
-        raise HTTPException(409, f"There is already a profile called {clash.name}. "
-                                 "Two profiles with one name would split its history in half.")
+        raise HTTPException(409, _clash_message(clash))
     if body.user_id is None:
         raise HTTPException(400, "A profile must have a BD assigned to it.")
     if not db.get(User, body.user_id):
@@ -770,10 +806,9 @@ def update_profile(profile_id: int, body: ProfilePatch, db: Session = Depends(ge
         name = body.name.strip()
         if not name:
             raise HTTPException(400, "A profile needs a name.")
-        clash = db.scalar(select(Profile).where(func.lower(Profile.name) == name.lower(),
-                                                Profile.id != profile_id))
+        clash = _name_clash(db, name, exclude_id=profile_id)
         if clash:
-            raise HTTPException(409, f"There is already a profile called {clash.name}.")
+            raise HTTPException(409, _clash_message(clash))
         profile.name = name
     if body.headline is not None:
         profile.headline = body.headline.strip()
@@ -816,6 +851,37 @@ def retire_profile(profile_id: int, db: Session = Depends(get_db),
     profile.is_active = False
     db.commit()
     return {"ok": True}
+
+
+@app.post("/api/profiles/{profile_id}/restore")
+def restore_profile(profile_id: int, db: Session = Depends(get_db),
+                    _: User = Depends(admin_only)):
+    """Put a retired profile back on the lists — what retiring has always
+    promised is reversible.
+
+    Nothing else is touched, so the history it kept while it was off comes back
+    with it and the duplicate guard still knows every posting it has applied to.
+    Restoring one that is already active is not an error: the caller asked for a
+    profile on the lists, and it is.
+    """
+    profile = db.get(Profile, profile_id)
+    if not profile:
+        raise HTTPException(404, "No such profile.")
+    if not profile.is_active:
+        # `ix_profiles_name` is unique but case-sensitive, while the clash checks
+        # are not — so the pair a restore can still walk into is a case variant
+        # written straight to the database, by a hand-edit or an importer, while
+        # this row was off the lists. Two live profiles under one name, spelled
+        # differently, is the thing those checks exist to stop.
+        clash = _name_clash(db, profile.name, exclude_id=profile.id)
+        if clash:
+            raise HTTPException(409, f"A profile called {clash.name} was made while "
+                                     "this one was retired. Rename one of them first.")
+        profile.is_active = True
+        db.commit()
+    return profile_json(profile,
+                        db.get(User, profile.user_id) if profile.user_id else None,
+                        db.get(User, profile.dev_user_id) if profile.dev_user_id else None)
 
 
 # --------------------------------------------------------------------------- #

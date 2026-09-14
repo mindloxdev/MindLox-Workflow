@@ -154,10 +154,12 @@ export const api = {
   deactivateUser: (id) => request(`/users/${id}`, { method: "DELETE" }),
 
   listProfiles: () => request("/profiles"),
+  listRetiredProfiles: () => request("/profiles?retired=true"),
   getProfile: (id) => request(`/profiles/${id}`),
   createProfile: (payload) => request("/profiles", { method: "POST", body: payload }),
   updateProfile: (id, payload) => request(`/profiles/${id}`, { method: "PATCH", body: payload }),
   retireProfile: (id) => request(`/profiles/${id}`, { method: "DELETE" }),
+  restoreProfile: (id) => request(`/profiles/${id}/restore`, { method: "POST" }),
 
   listBatches: () => request("/batches"),
   createBatch: (payload) => request("/batches", { method: "POST", body: payload }),

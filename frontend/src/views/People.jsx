@@ -48,6 +48,7 @@ const PLATFORM_OPTIONS = [
 export default function People() {
   const [people, setPeople] = useState([]);
   const [profiles, setProfiles] = useState([]);
+  const [retired, setRetired] = useState([]);
   const [person, setPerson] = useState(BLANK_PERSON);
   const [profile, setProfile] = useState(BLANK_PROFILE);
   const [note, setNote] = useState(null);
@@ -55,9 +56,16 @@ export default function People() {
 
   const load = async () => {
     try {
-      const [users, identities] = await Promise.all([api.listUsers(), api.listProfiles()]);
+      // The retired list is a recovery aid, not the screen. If it fails — an
+      // older server, a role that may not ask — the rest still loads.
+      const [users, identities, gone] = await Promise.all([
+        api.listUsers(),
+        api.listProfiles(),
+        api.listRetiredProfiles().catch(() => []),
+      ]);
       setPeople(users);
       setProfiles(identities);
+      setRetired(gone);
     } catch (err) {
       setNote({ bad: true, text: err.message });
     }
@@ -164,6 +172,20 @@ export default function People() {
       await load();
     } catch (err) {
       setNote({ bad: true, text: err.message });
+    }
+  };
+
+  const restore = async (item) => {
+    setBusy(true);
+    setNote(null);
+    try {
+      await api.restoreProfile(item.id);
+      await load();
+      setNote({ text: `${item.name} is back, with everything it had applied for.` });
+    } catch (err) {
+      setNote({ bad: true, text: err.message });
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -316,6 +338,42 @@ export default function People() {
           </tbody>
         </table>
       </div>
+
+      {!!retired.length && (
+        <section className="card pad">
+          <h2>Retired profiles</h2>
+          <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+            Off the lists, but still holding their names — which is why a new
+            profile cannot take one. Restore brings the profile back exactly as it
+            was, history and all, so nothing it already applied to is offered to
+            it twice.
+          </p>
+          <div className="scroll" style={{ marginTop: 12 }}>
+            <table>
+              <thead>
+                <tr><th>Profile</th><th>Headline</th><th>Was run by</th><th /></tr>
+              </thead>
+              <tbody>
+                {retired.map((item) => (
+                  <tr key={item.id}>
+                    <td style={{ fontWeight: 500 }}>
+                      {item.name}
+                      {item.platform && (
+                        <div className="muted" style={{ fontSize: 11 }}>{item.platform}</div>
+                      )}
+                    </td>
+                    <td>{item.headline || <span className="muted">—</span>}</td>
+                    <td>{item.owner || <span className="muted">nobody</span>}</td>
+                    <td style={{ textAlign: "right" }}>
+                      <button disabled={busy} onClick={() => restore(item)}>Restore</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <section className="card pad">
         <h2>Add a person</h2>
