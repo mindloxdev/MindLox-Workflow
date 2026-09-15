@@ -164,6 +164,9 @@ export const api = {
   disableProfile: (id) => request(`/profiles/${id}/disable`, { method: "POST" }),
   enableProfile: (id) => request(`/profiles/${id}/enable`, { method: "POST" }),
   deleteProfile: (id) => request(`/profiles/${id}`, { method: "DELETE" }),
+  // The row and everything under it. Only works on a profile already deleted,
+  // and there is nothing to enable afterwards.
+  purgeProfile: (id) => request(`/profiles/${id}/permanent`, { method: "DELETE" }),
 
   listBatches: () => request("/batches"),
   createBatch: (payload) => request("/batches", { method: "POST", body: payload }),

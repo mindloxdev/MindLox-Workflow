@@ -429,3 +429,43 @@ def test_a_bd_cannot_edit_anybody(client, bd, admin):
                         headers=bd).status_code == 403
     assert client.post(f"/api/users/{person['id']}/disable", headers=bd).status_code == 403
     assert client.post(f"/api/users/{person['id']}/enable", headers=bd).status_code == 403
+
+
+# --------------------------------------------------------------------------- #
+# Permanent removal
+# --------------------------------------------------------------------------- #
+
+def test_a_profile_must_be_deleted_before_it_can_be_purged(client, admin, bd_id):
+    """Two steps, not one. The first is reversible and visibly drops the
+    figures; only then does the button that loses the records appear."""
+    profile = make_profile(client, admin, bd_id)
+    refused = client.delete(f"/api/profiles/{profile['id']}/permanent", headers=admin)
+    assert refused.status_code == 409, refused.text
+    assert profile["id"] in ids_on(client, admin, "on")
+
+
+def test_purging_takes_the_row_and_frees_the_name(client, admin, bd_id):
+    profile = make_profile(client, admin, bd_id, "Purge Me AR")
+    assert client.delete(f"/api/profiles/{profile['id']}", headers=admin).status_code == 200
+    assert profile["id"] in ids_on(client, admin, "deleted")
+
+    gone = client.delete(f"/api/profiles/{profile['id']}/permanent", headers=admin)
+    assert gone.status_code == 200, gone.text
+    assert gone.json()["name"] == "Purge Me AR"
+
+    assert profile["id"] not in ids_on(client, admin, "deleted")
+    assert profile["id"] not in ids_on(client, admin, "on")
+    assert client.get(f"/api/profiles/{profile['id']}", headers=admin).status_code == 404
+
+    # The name was only reserved by the row, so it is free again.
+    again = client.post("/api/profiles", json={"name": "Purge Me AR", "user_id": bd_id},
+                        headers=admin)
+    assert again.status_code == 201, again.text
+
+
+def test_a_bd_cannot_purge_a_profile(client, admin, bd, bd_id):
+    profile = make_profile(client, admin, bd_id)
+    client.delete(f"/api/profiles/{profile['id']}", headers=admin)
+    assert client.delete(f"/api/profiles/{profile['id']}/permanent",
+                         headers=bd).status_code == 403
+    assert profile["id"] in ids_on(client, admin, "deleted")

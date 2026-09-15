@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { api, download } from "../api.js";
 import { useToast } from "./shell.jsx";
 import {
-  Flow, InterviewRows, JobPicker, Loading, Rounds, STAGE_LABELS, StageLadder, Stalled,
+  InterviewRows, JobPicker, Loading, STAGE_LABELS, Stalled,
   WaitingOnTime,
 } from "./widgets.jsx";
 
@@ -61,7 +61,6 @@ export default function Interviews({
   intro = "",
   canSchedule = true,
   showProfile = true,
-  showFunnel = false,
   profileId = null,
 }) {
   const [data, setData] = useState(null);
@@ -456,19 +455,6 @@ export default function Interviews({
         </div>
       )}
 
-      {showFunnel && (
-        <>
-          <Flow funnel={data.funnel} awaiting={data.counts.awaiting_outcome} />
-          <p className="hint" style={{ maxWidth: 700 }}>
-            Applications are all-time. Interviews are never counted against one round
-            of work — a reply that lands three weeks late belongs to the applications
-            that earned it, not to whichever round happened to be open.
-          </p>
-          <Rounds rounds={data.funnel.rounds} />
-          <StageLadder rows={data.funnel.by_stage} />
-        </>
-      )}
-
       {data.awaiting_time?.length > 0 && (
         <div className="stack" style={{ gap: 8 }}>
           <div>
@@ -518,9 +504,6 @@ export default function Interviews({
 
       <div>
         <h3>What happened</h3>
-        <p className="hint" style={{ margin: "3px 0 8px" }}>
-          Been and gone. Recording the outcome is what makes the rates true.
-        </p>
         <InterviewRows rows={data.recent} showProfile={showProfile} canBook={canSchedule}
                        onChange={change} onRemove={canSchedule ? remove : undefined}
                        onNextRound={advance}

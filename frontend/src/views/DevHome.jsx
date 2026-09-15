@@ -5,7 +5,7 @@ import Interviews from "./Interviews.jsx";
 import { ActionList, devTodo } from "./Todo.jsx";
 import {
   AssessmentBoard, Availability, BigFigures, CopyButton, CyclePicker, DateRange,
-  DayByDay, Empty, Flow, InterviewRows, Loading, NextInterview, RangeReport,
+  Empty, InterviewRows, Loading, NextInterview, RangeReport,
   Segment, Skills, Stalled,
 } from "./widgets.jsx";
 
@@ -171,8 +171,7 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
               : counts.scheduled
                 ? <>Nothing today. <b>{counts.scheduled}</b> still ahead of you — times are
                     Eastern, not your own clock.</>
-                : "Nothing booked. Your team is applying for jobs under your name, and a "
-                  + "reply turns into a row here the moment somebody logs it."}
+                : ""}
           </p>
         </div>
         <div className="stack" style={{ alignItems: "flex-end", gap: 8 }}>
@@ -190,7 +189,7 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
 
       {data.profiles.length > 1 && (
         <section className="card pad">
-          <h3>Which name are you looking at?</h3>
+          <h3>SSN/Profiles</h3>
           <div className="row" style={{ marginTop: 10 }}>
             <button className={only ? "ghost" : ""} onClick={() => setOnly(null)}>
               All of them
@@ -206,12 +205,6 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
               </button>
             ))}
           </div>
-          <p className="hint" style={{ marginTop: 9 }}>
-            Your team sells you to clients under more than one name. Each is a
-            separate candidate with its own resume, its own BD and its own diary —
-            so a client who booked <b>{data.profiles[0].name}</b> has never heard of the
-            others. Everything below follows whichever you pick.
-          </p>
         </section>
       )}
 
@@ -222,7 +215,6 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
       <ActionList
         items={devTodo({ counts, tests: tests?.counts, go: setPane })}
         heading="What only you can do"
-        lead="Hardest first. Each one has the button that deals with it."
         empty={{
           title: "Nothing is waiting on you.",
           body: "Every interview that has happened has been reported on, no assessment is "
@@ -248,16 +240,13 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
           profiles={only ? profiles.filter((p) => p.id === only) : profiles}
           profileId={only}
           heading={chosen ? `Assessments set for ${chosen.name}` : "Assessments set for you"}
-          intro="A client set these against one of the names you are sold under. Your BD records them; doing them is yours."
         />
       ) : pane === "diary" ? (
         <Interviews
           profiles={only ? profiles.filter((p) => p.id === only) : profiles}
           profileId={only}
           heading={chosen ? `${chosen.name}'s interviews` : "Every interview"}
-          intro="What is coming, what has been, and how each one went. If a client emailed you directly, book it here yourself — you do not need to ask anybody."
           showProfile
-          showFunnel
         />
       ) : (
         <>
@@ -293,16 +282,9 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
           tone: counts.week ? "good" : undefined },
         { key: "owed", scope: "waiting on you", value: counts.awaiting_outcome,
           label: "interviews with no result recorded",
-          body: counts.awaiting_outcome
-            ? "They have been and gone and nobody has said how they went. You were "
-              + "there, so only you can."
-            : "Everything that has happened has been reported on. Nothing is owed.",
           tone: counts.awaiting_outcome ? "bad" : undefined },
         { key: "apps", scope: "all time", value: funnel.applications,
-          label: "applied in your name",
-          body: `Your team's work, not your score. ${funnel.interview_rate}% of them `
-              + "got a client talking.",
-        },
+          label: "applied in your name" },
         { key: "offers", scope: "all time", value: funnel.offers,
           label: "offers of work",
           body: "The only number here that pays for anything.",
@@ -350,25 +332,10 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
         </section>
       )}
 
-      <section className="stack" style={{ gap: 8 }}>
-        <div>
-            <h2>What the applications turned into</h2>
-          <p className="hint" style={{ marginTop: 3, maxWidth: 640 }}>
-            Everything else counts effort. This is the part a client decides, and the
-            only figure here that nobody can improve by typing faster.
-          </p>
-        </div>
-        <Flow funnel={funnel} awaiting={counts.awaiting_outcome} />
-      </section>
-
       <section className="stack" style={{ gap: 10 }}>
         <div className="row" style={{ justifyContent: "space-between" }}>
           <div>
-            <h2>The names you are sold under</h2>
-            <p className="hint" style={{ marginTop: 3, maxWidth: 640 }}>
-              Exactly what a client sees when your team applies for you. If the resume
-              is missing or the details are wrong, this is what went out.
-            </p>
+            <h2>SSN/Profiles you are working</h2>
           </div>
           {onOpenProfiles && <button className="ghost" onClick={onOpenProfiles}>Edit your details</button>}
         </div>
@@ -421,15 +388,6 @@ export default function DevHome({ onOpenProfiles, pane: jumpTo = null, onPaneSee
             </div>
           ))}
         </div>
-      </section>
-
-      <section>
-        <h3>Applied in your name, day by day</h3>
-        <p className="hint" style={{ margin: "3px 0 9px", maxWidth: 640 }}>
-          The last thirty days, Eastern time. This is a picture of your team working,
-          not of you — nobody is measured on it.
-        </p>
-        <DayByDay series={data.activity} />
       </section>
 
       {recent.length > 0 && (

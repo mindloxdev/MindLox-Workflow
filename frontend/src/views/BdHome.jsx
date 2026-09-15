@@ -319,10 +319,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
         <div>
           <h1>Your work</h1>
           <p className="muted" style={{ marginTop: 3 }}>
-            Applying as <b>{profile?.name}</b>{profile?.headline ? ` · ${profile.headline}` : ""}
-            {batch && <> · cycle <b>{batch.name}</b>, {batch.status === "open"
-              ? "still taking jobs"
-              : "closed — anything new goes into the next one"}</>}.
+            Applying as <b>{profile?.name}</b>{profile?.headline ? ` · ${profile.headline}` : ""}.
           </p>
         </div>
         <div className="row" style={{ gap: 10 }}>
@@ -367,7 +364,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
           diary, tests, batch, toDo: newJobs.length,
           handedIn: handedIn > 0, profile, go: setTab,
         })}
-        lead="Hardest first. Each one has the button that deals with it."
+        heading="Updates on interview & Assessments"
         empty={{
           title: "You are straight.",
           body: "No client is waiting on a time, nothing is past a deadline, your "
@@ -387,15 +384,13 @@ export default function BdHome({ pane = null, onPaneSeen }) {
           <section className="card pad stack" style={{ gap: 10 }}>
             <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
               <div>
-                <h3>Who the client meets</h3>
-                <p className="hint" style={{ marginTop: 3, maxWidth: 640 }}>
-                  {profile.developer
-                    ? <>A client who says yes to <b>{profile.name}</b> is
-                        meeting <b>{profile.developer}</b>. You book the time; they say
-                        afterwards how it went, and it comes back to your diary.</>
-                    : <>Nobody is attached to <b>{profile.name}</b>, so an interview
-                        booked against it reaches no one.</>}
-                </p>
+                <h3>Developer</h3>
+                {profile.developer
+                  ? <p style={{ marginTop: 3, fontWeight: 500 }}>{profile.developer}</p>
+                  : <p className="hint" style={{ marginTop: 3, maxWidth: 640 }}>
+                      Nobody is attached to <b>{profile.name}</b>, so an interview
+                      booked against it reaches no one.
+                    </p>}
               </div>
               {profile.developer && <Availability value={profile.availability} />}
             </div>
@@ -489,8 +484,6 @@ export default function BdHome({ pane = null, onPaneSeen }) {
             <Interviews
               profiles={profiles}
               heading="Interviews"
-              intro="Every reply that turned into a conversation. You book the time; the developer says afterwards how it went."
-              showFunnel
             />
           )}
 
@@ -498,12 +491,6 @@ export default function BdHome({ pane = null, onPaneSeen }) {
             <section className="stack" style={{ gap: 10 }}>
               <div>
                   <h2>Own jobs — what {profile?.name} found</h2>
-                <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-                  The jobs you went out and applied for yourself this cycle. Handing
-                  them in is what stops a colleague spending their morning finding the
-                  same ones — and it is what puts them on other people&apos;s lists as
-                  their <b>others&apos; jobs</b>.
-                </p>
               </div>
 
               {batch.status !== "open" ? (

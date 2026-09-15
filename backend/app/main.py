@@ -1011,6 +1011,50 @@ def enable_profile(profile_id: int, db: Session = Depends(get_db),
     return _profile_out(db, profile)
 
 
+@app.delete("/api/profiles/{profile_id}/permanent")
+def purge_profile(profile_id: int, db: Session = Depends(get_db),
+                  _: User = Depends(admin_only)):
+    """Remove the row and everything hanging off it. There is no way back.
+
+    `delete_profile` is a stamp precisely so nothing is lost; this is the other
+    thing, for a profile that should never have existed — a test row, a typo, a
+    duplicate made twice. It is only reachable from the deleted list, so a
+    profile has to be stamped deleted before it can be purged: two deliberate
+    steps, and the figures visibly drop at the first one rather than at this
+    one.
+
+    The dependants go by hand rather than by cascade. `interviews` and
+    `assessments` are ON DELETE CASCADE and would go on their own, but
+    `uploads`, `applications`, `batch_applications` and `assignments` are plain
+    references — under Postgres they would raise, and under SQLite with the
+    foreign keys off they would be left pointing at a row that is not there,
+    which is the worse of the two. Deleting them here means one behaviour on
+    both.
+
+    Jobs are left alone. A posting is shared: the fingerprint that stops two
+    BDs typing the same job in twice lives on `jobs`, and taking one out
+    because the last profile to apply for it was purged would let it come
+    straight back through the front door tomorrow.
+    """
+    profile = _profile_or_404(db, profile_id)
+    if profile.deleted_at is None:
+        raise HTTPException(409, "Delete this profile first. Permanent removal is "
+                                 "only for profiles already on the deleted list.")
+    name = profile.name
+    counts = {}
+    for label, model in (("sheets", Upload),
+                         ("applications", Application),
+                         ("cycle applications", BatchApplication),
+                         ("dispatched jobs", Assignment),
+                         ("interviews", Interview),
+                         ("assessments", Assessment)):
+        counts[label] = db.execute(
+            delete(model).where(model.profile_id == profile.id)).rowcount or 0
+    db.delete(profile)
+    db.commit()
+    return {"ok": True, "name": name, "removed": counts}
+
+
 # --------------------------------------------------------------------------- #
 # Batches
 # --------------------------------------------------------------------------- #

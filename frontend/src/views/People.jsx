@@ -50,7 +50,7 @@ const PLATFORM_OPTIONS = [
    differ only in what they are called and what the hint explains. Neither is
    drawn at all when it is empty: a manager who has never switched anything off
    should not be told about a list of nothing. */
-function OffList({ title, rows, hint, busy, onEnable }) {
+function OffList({ title, rows, hint, busy, onEnable, onPurge }) {
   if (!rows.length) return null;
   return (
     <section className="card pad">
@@ -72,8 +72,12 @@ function OffList({ title, rows, hint, busy, onEnable }) {
                 </td>
                 <td>{item.headline || <span className="muted">—</span>}</td>
                 <td>{item.owner || <span className="muted">nobody</span>}</td>
-                <td style={{ textAlign: "right" }}>
+                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                   <button disabled={busy} onClick={() => onEnable(item)}>Enable</button>
+                  {onPurge && (
+                    <button className="link" disabled={busy} style={{ marginLeft: 10 }}
+                            onClick={() => onPurge(item)}>Delete permanently</button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -248,6 +252,22 @@ export default function People() {
     act(() => api.enableProfile(item.id),
         `${item.name} is back, with everything it had applied for.`);
 
+  // The one action on this screen that loses something, so it asks for the name
+  // rather than for a click: every other button here is reversible, and a
+  // confirm box in a row of reversible buttons gets pressed on reflex.
+  const purgeProfile = (item) => {
+    const typed = window.prompt(
+      `Delete ${item.name} permanently? Its sheets, applications, interviews and ` +
+      `assessments all go with it, the reports stop counting them, and nothing ` +
+      `brings any of it back. Type the profile name to confirm.`);
+    if (typed === null) return;
+    if (typed.trim().toLowerCase() !== item.name.trim().toLowerCase()) {
+      setNote({ bad: true, text: `That is not the profile's name. ${item.name} is untouched.` });
+      return;
+    }
+    act(() => api.purgeProfile(item.id), `${item.name} is gone, along with its records.`);
+  };
+
   const disableUser = (item) => {
     if (!window.confirm(
       `Disable ${item.name}? They cannot sign in, but everything they did stays ` +
@@ -306,35 +326,15 @@ export default function People() {
     <div className="stack">
       <div>
         <h1>People and profiles</h1>
-        <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-          A <b>person</b> signs in. A <b>profile</b> is the identity a job is
-          applied under. One person can run several.
-        </p>
-        <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            The <b>BD</b> runs the account and applies. The <b>developer</b> is who the
-            client meets. Either may be left empty.
-          </p>
       </div>
 
       {note && <div className={note.bad ? "notice" : "notice ok"}>{note.text}</div>}
 
       <section className="card pad">
-        <h2>Add a profile</h2>
+        <h2>Add SSN Profile</h2>
         <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            Two profiles with the same skills are two candidates — both may go for
-            one job. Only the same profile twice is blocked.
-          </p>
-        <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            <b>On the board</b> decides whether a profile appears on the shared
-            team board.
-          </p>
-        <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            <b>Disable</b> takes a profile off the working lists for now.{" "}
-            <b>Delete</b> takes it off for good. Neither loses anything — the
-            applications, interviews and assessments stay exactly as they are, and
-            both keep the profile&rsquo;s name so the work recorded under it still
-            adds up.
-          </p>
+          To Assign BD and Developer
+        </p>
         <div className="row" style={{ marginTop: 12, flexWrap: "wrap" }}>
           <input placeholder="Profile name, e.g. Khuram" value={profile.name}
                  onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
@@ -453,28 +453,17 @@ export default function People() {
                      exactly as it was, history and all." />
 
       <OffList title="Deleted profiles" rows={deleted} busy={busy} onEnable={enableProfile}
+               onPurge={purgeProfile}
                hint="Off the lists for good, with everything they left behind intact: the
                      applications, interviews and assessments are all still there and the
                      reports still count them. They keep their names for that reason. Enable
                      puts one back if you deleted it by mistake." />
 
       <section className="card pad">
-        <h2>Add a person</h2>
+        <h2>Add Roles of Employee</h2>
         <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            A new BD starts with <b>no dashboard</b> — they can still log jobs and work
-            their list. Turn it on when you want them measured.
-          </p>
-        <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            The switch does not apply to a <b>developer</b>: their diary and resume are
-            always theirs to see.
-          </p>
-        <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-            When somebody leaves and a new person takes their seat, <b>Edit</b> the
-            account rather than making a second one: change the name, the email and
-            the password, and every profile they ran comes with it. Making a new
-            account instead leaves the work split between a name that has gone and a
-            name that has just arrived.
-          </p>
+          Roles are BD, Manager, Developer
+        </p>
         <div className="row" style={{ marginTop: 12 }}>
           <input placeholder="Full name" value={person.name}
                  onChange={(e) => setPerson({ ...person, name: e.target.value })} />

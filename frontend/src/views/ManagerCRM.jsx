@@ -406,13 +406,6 @@ export default function ManagerCRM() {
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
           <h1>Clients</h1>
-          <p className="muted" style={{ marginTop: 3, maxWidth: 720 }}>
-            Everything already recorded, grouped by the company instead of by the
-            person who typed it. <b>{totals.clients}</b>{" "}
-            {plural(totals.clients, "client", "clients")},{" "}
-            <b>{totals.applications}</b> applied between them. Nothing
-            here books, reschedules or settles anything.
-          </p>
         </div>
         <div className="row">
           <DateRange {...dateRange} onChange={setDateRange} />

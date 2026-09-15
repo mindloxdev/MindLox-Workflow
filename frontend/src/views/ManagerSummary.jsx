@@ -121,7 +121,7 @@ export function NeedsYou(data) {
   return (
     <ActionList
       items={needsYou(data)}
-      lead="Hardest first. Everything below this section is the picture; this is the list."
+      heading="Updates on interview & Assessments"
       empty={{
         title: "Nothing needs you right now.",
         body: "Every sheet is in, no client is waiting on a time, no deadline has "
@@ -155,16 +155,16 @@ export function Headline({ org, funnel }) {
   const cards = [
     {
       key: "sent",
-      scope: "this cycle",
+      scope: "all time",
       value: num(sent),
-      label: "applied this cycle",
+      label: "applied",
       body: "Every job somebody applied for this cycle, whether they found it "
           + "themselves or a colleague found it for them.",
       tone: "good",
     },
     {
       key: "shared",
-      scope: "this cycle",
+      scope: "all time",
       value: num(org.from_others),
       label: "others' jobs",
       body: sent
@@ -177,7 +177,7 @@ export function Headline({ org, funnel }) {
       key: "interviews",
       scope: "all time",
       value: num(funnel?.interviews || 0),
-      label: "clients who wanted to talk",
+      label: "companies who want to talk",
       body: "Interviews booked off every application ever sent. A reply often "
           + "lands weeks after the application that earned it.",
     },
@@ -192,115 +192,6 @@ export function Headline({ org, funnel }) {
   ];
 
   return <Figures items={cards} />;
-}
-
-/** What the four numbers mean, for whoever has not read it before.
- *
- * Under the row rather than inside each card: a sentence per figure is most of
- * a screen, and it is read once and scrolled past every morning after.
- */
-export function HeadlineKey({ org, funnel }) {
-  const sent = (org.own_found || 0) + (org.from_others || 0);
-  return (
-    <div className="stack" style={{ gap: 8, maxWidth: 720 }}>
-      <p className="muted">
-        <b>Applied this cycle</b> — every job somebody applied for this cycle,
-        whether they found it themselves or a colleague found it for them.
-      </p>
-      <p className="muted">
-        <b>Others&apos; jobs</b> — work that came off somebody else&apos;s
-        sheet{sent ? `, ${Math.round((org.from_others / sent) * 100)}% of the cycle` : ""}.
-        This is the part that would not have happened without everybody handing
-        in to one place.
-      </p>
-      <p className="muted">
-        <b>Clients who wanted to talk</b> and <b>offers of work</b> are all-time,
-        and cannot honestly be anything else: a client who replies three weeks
-        late is answering work from a cycle that closed, and counting that reply
-        against whichever cycle happens to be open would credit the wrong
-        fortnight.
-      </p>
-      {!funnel?.offers && (
-        <p className="hint">
-          No offers recorded yet. That figure only moves when the work was worth
-          sending, which is why it is the one worth steering by.
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* ── Doubled-up effort ─────────────────────────────────────────────────── */
-
-/** The same job, found by two people.
- *
- * The one figure on this screen that is a cost rather than an achievement, and
- * the reason the product exists. Said as typing rather than as a percentage,
- * because "18%" is a statistic and "94 jobs were typed in twice" is a morning
- * somebody spent twice.
- */
-export function DoubledUp({ org, history }) {
-  const trend = (history || []).filter((row) => row.rows_read > 0);
-  const peak = Math.max(1, ...trend.map((row) => row.duplicate_pct), 1);
-  const previous = trend.length > 1 ? trend[trend.length - 2] : null;
-  const direction = previous ? org.duplicate_pct - previous.duplicate_pct : null;
-
-  return (
-    <div className="card pad stack" style={{ gap: 12 }}>
-      <div className="row" style={{ gap: 26, alignItems: "flex-start", flexWrap: "wrap" }}>
-        <div>
-          <b className={org.duplicates ? "dup-figure is-bad" : "dup-figure"}>
-            {num(org.duplicates)}
-          </b>
-          <span className="head-label">
-            {plural(org.duplicates, "job found twice", "jobs found twice")}
-          </span>
-        </div>
-        <p style={{ flex: "1 1 340px", maxWidth: 620, fontSize: "var(--t-sm)", lineHeight: 1.6 }}>
-          {org.duplicates
-            ? <>Two people went out and found the same posting, so it was typed
-                in <b>{num(org.wasted_rows)}</b> {plural(org.wasted_rows, "time", "times")} more
-                than it needed to be — <b>{org.duplicate_pct}%</b> of everything typed
-                this cycle. Splitting up who searches where is what brings this down.</>
-            : <>Nobody found the same posting as anybody else this cycle. That is the
-                best this number gets.</>}
-          {direction !== null && (
-            <> {direction < 0
-              ? <>It is <b>{Math.abs(direction)} points lower</b> than the cycle before.</>
-              : direction > 0
-                ? <>It is <b>{direction} points higher</b> than the cycle before.</>
-                : <>It is level with the cycle before.</>}</>
-          )}
-        </p>
-      </div>
-
-      {trend.length > 1 && (
-        <div>
-          <p className="hint" style={{ marginBottom: 8 }}>
-            Share of the team's typing spent on a job somebody else had already found,
-            cycle by cycle. Lower is better.
-          </p>
-          <div className="history">
-            {trend.map((row) => {
-              return (
-                <div className="history-col" key={row.id}
-                     title={`${row.name}: ${row.duplicates} of ${row.rows_read} rows were a repeat`}>
-                  <span className="mono history-value">{row.duplicate_pct}%</span>
-                  <div className="history-bar">
-                    <i style={{
-                      height: `${Math.max(3, (row.duplicate_pct / peak) * 100)}%`,
-                      background: row.duplicate_pct > 20 ? "var(--bad)" : "var(--a)",
-                    }} />
-                  </div>
-                  <span className="muted history-label truncate">{row.name}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
 }
 
 /* ── Each person ───────────────────────────────────────────────────────── */
@@ -445,10 +336,9 @@ function PersonRow({ person, onOpen, onToggle, busy }) {
 export function PeopleTable({ people, onOpen, onToggle, busy }) {
   // A developer is on the payroll but hands in no sheets, so a row of zeros
   // against their name says nothing except that they are a developer. They
-  // have their own section. A *BD* with no profile stays, and is named under
-  // the table — that is somebody who cannot do their job.
+  // have their own section. A *BD* with no profile stays regardless — that is
+  // somebody who cannot do their job.
   const rows = people.filter((person) => person.runs > 0 || person.role !== "dev");
-  const idle = rows.filter((person) => !person.runs && person.role === "bd");
 
   return (
     <div className="stack" style={{ gap: 8 }}>
@@ -476,18 +366,6 @@ export function PeopleTable({ people, onOpen, onToggle, busy }) {
       </div>
 
       <ListLegend />
-      <p className="hint" style={{ maxWidth: 760 }}>
-        <b>Applied this cycle</b> is everything they applied for. <b>Their list</b> is
-        how far through the work a colleague handed them they have got. Press a
-        name to open their screen, or the chevron for the rest of their figures.
-      </p>
-      {idle.length > 0 && (
-        <p className="hint" style={{ maxWidth: 760 }}>
-          {idle.map((person) => person.name).join(", ")}{" "}
-          {plural(idle.length, "has", "have")} no profile to apply under yet, so there is
-          nothing for them to hand in. Set one up under <b>People</b>.
-        </p>
-      )}
     </div>
   );
 }

@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api, safeUrl } from "../api.js";
 import {
   AssessmentBoard, Availability, CyclePicker, DateRange, DayByDay, DeveloperBoard,
-  Disclosure, Flow, Funnel, InterviewRows, Loading, RangeReport, Rounds, Segment,
+  Disclosure, Funnel, InterviewRows, Loading, RangeReport, Segment,
   Skills, StageLadder, Stalled, TeamBoard, Tiles, sinceText, workingToday,
 } from "./widgets.jsx";
 import {
-  DoubledUp, Headline, HeadlineKey, NeedsYou, PeopleTable,
+  Headline, NeedsYou, PeopleTable,
 } from "./ManagerSummary.jsx";
 import PersonDashboard from "./PersonDashboard.jsx";
 
@@ -385,23 +385,6 @@ export default function ManagerDashboard({ onOpenBatches }) {
     return () => clearInterval(tick);
   }, [batchId, load, loadToday]);
 
-  const toggleBoard = async (visible) => {
-    setSaving(true);
-    try {
-      const settings = await api.saveSettings({ team_board_visible: visible });
-      setData((current) => (current ? { ...current, settings } : current));
-      setNote({
-        text: visible
-          ? "The team board is open. Everyone can now see how every shared profile is doing."
-          : "The team board is closed. People see only their own numbers again.",
-      });
-    } catch (err) {
-      setNote({ bad: true, text: err.message });
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const togglePerson = async (person, open) => {
     setSaving(true);
     try {
@@ -416,15 +399,6 @@ export default function ManagerDashboard({ onOpenBatches }) {
       setNote({ bad: true, text: err.message });
     } finally {
       setSaving(false);
-    }
-  };
-
-  const shareProfile = async (profileId, share) => {
-    try {
-      await api.updateProfile(profileId, { share_progress: share });
-      await load(batchId);
-    } catch (err) {
-      setNote({ bad: true, text: err.message });
     }
   };
 
@@ -467,10 +441,8 @@ export default function ManagerDashboard({ onOpenBatches }) {
     );
   }
 
-  const { org, batch, people, profiles, missing, settings } = data;
+  const { org, batch, people, profiles, missing } = data;
   const diary = data.interviews;
-  const boardOpen = !!settings?.team_board_visible;
-  const closedCount = people.filter((p) => p.role !== "admin" && !p.dashboard_visible).length;
 
   const openTheirScreen = (person) => openDetail(() => {
     setOpenPerson(person);
@@ -490,13 +462,6 @@ export default function ManagerDashboard({ onOpenBatches }) {
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
           <h1>How the team is doing</h1>
-          <p className="muted" style={{ marginTop: 3 }}>
-            {batch
-              ? <>Cycle <b>{batch.name}</b> · {batch.status === "open"
-                  ? "still running" : "finished"}
-                  {batch.last_built_at && <> · lists last shared out {sinceText(batch.last_built_at)}</>}</>
-              : "No cycle of work has been started yet."}
-          </p>
         </div>
         <div className="row">
           <CyclePicker batches={data.batches} value={batchId || batch?.id}
@@ -521,24 +486,19 @@ export default function ManagerDashboard({ onOpenBatches }) {
           every morning before the thing you came for. */}
       <section className="stack" style={{ gap: 8 }}>
         <Headline org={org} funnel={data.funnel} />
-        <Disclosure title="What these four numbers mean"
-                    hint="the windows they count over">
-          <HeadlineKey org={org} funnel={data.funnel} />
-        </Disclosure>
       </section>
 
       <section className="stack" style={{ gap: 10 }}>
         <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
-            <h2>How each person is doing</h2>
-            <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-              {datesSet
-                ? <>Counting <b>only the dates you picked</b> above.</>
-                : showingToday
-                  ? <>Counting <b>today so far</b>, on Eastern time — a row of zeros at
-                      nine in the morning is a team that has not started yet.</>
+            <h2>Employees Performance</h2>
+            {!showingToday && (
+              <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
+                {datesSet
+                  ? <>Counting <b>only the dates you picked</b> above.</>
                   : <>Counting the <b>whole cycle</b>.</>}
-            </p>
+              </p>
+            )}
           </div>
           {!datesSet && (
             <Segment
@@ -560,30 +520,6 @@ export default function ManagerDashboard({ onOpenBatches }) {
           section says "there are two things in here" rather than "there might
           be something in here" — which is the difference between progressive
           disclosure and hidden information. */}
-
-      <Disclosure title="What the applications turned into"
-                  badge={data.funnel?.offers
-                    ? `${data.funnel.offers} offer${data.funnel.offers === 1 ? "" : "s"}`
-                    : null}
-                  tone={data.funnel?.offers ? "on" : ""}
-                  hint="applications, interviews, offers, hires">
-        <div className="stack" style={{ gap: 10 }}>
-          <p className="hint" style={{ maxWidth: 680 }}>
-            Everything above counts effort, and effort goes up when people work
-            harder. This is the part a client decides.
-          </p>
-          <Flow funnel={data.funnel} awaiting={diary?.counts.awaiting_outcome || 0} />
-          <Rounds rounds={data.funnel?.rounds} />
-          <StageLadder rows={data.funnel?.by_stage} />
-        </div>
-      </Disclosure>
-
-      <Disclosure title="Effort spent twice"
-                  badge={org.duplicates || null}
-                  tone={org.duplicates ? "off" : ""}
-                  hint="the same job found by two people">
-        <DoubledUp org={org} history={data.history} />
-      </Disclosure>
 
       <Disclosure title="Jobs found, day by day"
                   hint="the whole team, last thirty days">
@@ -655,60 +591,6 @@ export default function ManagerDashboard({ onOpenBatches }) {
           </p>
           <TeamBoard rows={profiles}
                      onOpen={(id) => openDetail(() => setOpenProfile(id))} />
-        </div>
-      </Disclosure>
-
-      <Disclosure title="Who can see what"
-                  badge={closedCount || null}
-                  tone={closedCount ? "warn" : ""}
-                  hint={closedCount
-                    ? `${closedCount} cannot see their own figures yet`
-                    : "everybody can see their own figures"}>
-        <div className="stack" style={{ gap: 12 }}>
-          <div className="notice ok gate">
-            <b>1. Can a person see their own figures?</b> Off until you turn it on,
-            one person at a time — press the chevron on their row above.
-            {closedCount > 0
-              ? ` ${closedCount} ${closedCount === 1 ? "person cannot" : "people cannot"} see theirs yet.`
-              : " Everybody on the team can see theirs."}
-            {" "}Turning it off takes nothing away from their work — their list and the
-            sheet they hand in are untouched, only the screen of figures goes.
-          </div>
-
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <b style={{ fontFamily: "var(--display)" }}>2. Can they see each other?</b>
-              <p className="hint" style={{ marginTop: 3, maxWidth: 660 }}>
-                Every profile side by side, ranked. Only reaches people who can already
-                see their own figures.
-              </p>
-            </div>
-            <label className="row" style={{ gap: 8 }}>
-              <input type="checkbox" checked={boardOpen} disabled={saving}
-                     onChange={(e) => toggleBoard(e.target.checked)} />
-              <b style={{ fontFamily: "var(--display)",
-                          color: boardOpen ? "var(--ok-text)" : "var(--slate)" }}>
-                {boardOpen ? "The team can see it" : "Only you can see it"}
-              </b>
-            </label>
-          </div>
-
-          {boardOpen && (
-            <div>
-              <p className="hint" style={{ marginBottom: 8 }}>
-                Untick a profile to keep it off the shared board. It stays on this screen.
-              </p>
-              <div className="row" style={{ gap: 14 }}>
-                {profiles.map((row) => (
-                  <label key={row.profile_id} className="row" style={{ gap: 6 }}>
-                    <input type="checkbox" checked={row.shared}
-                           onChange={(e) => shareProfile(row.profile_id, e.target.checked)} />
-                    {row.name}
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </Disclosure>
     </div>
