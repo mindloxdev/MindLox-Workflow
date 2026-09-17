@@ -186,6 +186,46 @@ def test_unusable_row_is_rejected():
     assert fingerprint("", "", "")[0] == ""
 
 
+# --------------------------------------------------------------------------- #
+# The column the fingerprint has to fit in
+#
+# `jobs.fingerprint` is VARCHAR(400). One posting with a very long path used to
+# blow the whole build's INSERT up with "value too long for type character
+# varying(400)", which lost every other job in the cycle with it.
+# --------------------------------------------------------------------------- #
+
+_LONG_PATH = ("https://careers.acme.com/en-US/externalcareers/"
+              + "senior-patient-access-coordinator-remote-night-shift/" * 12)
+
+
+def test_a_very_long_link_still_fits_the_column():
+    fp, tier = fingerprint(_LONG_PATH + "posting", "", "")
+    assert tier == "L2" and len(fp) <= 400
+
+
+def test_a_very_long_client_and_title_still_fit_the_column():
+    fp, tier = fingerprint("", "Patient Access Coordinator " * 30,
+                           "Some Very Long Health System " * 10)
+    assert tier == "L3" and len(fp) <= 400
+
+
+def test_two_long_links_sharing_a_prefix_stay_two_jobs():
+    """The whole point of capping with a digest rather than a plain cut."""
+    a, _ = fingerprint(_LONG_PATH + "alpha", "", "")
+    b, _ = fingerprint(_LONG_PATH + "bravo", "", "")
+    assert a != b
+
+
+def test_the_cap_is_stable_across_calls():
+    """A capped fingerprint has to match the row it wrote on the last build."""
+    assert (fingerprint(_LONG_PATH + "posting", "", "")[0]
+            == fingerprint(_LONG_PATH + "posting", "", "")[0])
+
+
+def test_an_ordinary_link_is_not_touched_by_the_cap():
+    assert fingerprint("https://pk.indeed.com/viewjob?jk=a1b2c3d4e5f60718", "", "")         == ("id:indeed:a1b2c3d4e5f60718", "L1")
+
+
 def test_fuzzy_merge_collapses_reworded_titles():
     records = [
         {"fp": "ct:northwind|senior react developer", "tier": "L3",

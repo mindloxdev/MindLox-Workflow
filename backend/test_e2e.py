@@ -128,6 +128,25 @@ def listing(client, batch_id, profile_id, headers):
                       headers=headers).json()["jobs"]
 
 
+def stored_born(assignment_ids):
+    """When each of these assignment rows was created.
+
+    The point of asserting on this rather than on the id alone: SQLite hands a
+    deleted rowid straight back out, so a row destroyed and minted again comes
+    back wearing the same number and the id proves nothing here. `created_at`
+    is stamped per insert, so it tells the two apart on any database — which is
+    what makes this test mean on SQLite what it means on Postgres.
+    """
+    from app.main import SessionLocal
+    from app.models import Assignment
+    db = SessionLocal()
+    try:
+        return {aid: (db.get(Assignment, aid).created_at if db.get(Assignment, aid) else None)
+                for aid in assignment_ids}
+    finally:
+        db.close()
+
+
 def stored_status(batch_id, profile_id, assignment_id):
     """One assignment's status straight from the store.
 
@@ -642,3 +661,170 @@ def test_bd_cannot_compute(client):
 
 def test_anonymous_is_blocked(client):
     assert client.get("/api/batches").status_code == 401
+
+
+
+def test_one_skip_covers_every_profile_in_a_split_cycle(client, admin, new_profile):
+    """Skipping for every profile you run has to work in a split cycle too.
+
+    It did not. The extra rows were minted carrying the `exclusive` flag copied
+    from the row being skipped, and in a split cycle that flag is what the
+    partial unique index uses to hold "this job went to exactly one profile" —
+    so the second row collided with the first, the request failed, and the BD's
+    decision was simply lost.
+    """
+    one = new_profile("ali@example.com")
+    two = new_profile("ali@example.com")          # same person, second name
+    theirs = new_profile("sara@example.com")
+    batch_id = open_cycle(client, admin, f"SplitSkip{next(_serial)}", mode="split")
+    for pid, span in ((one, range(7100, 7120)), (two, range(7120, 7140))):
+        hand_in(client, batch_id, token(client, "ali@example.com"), pid, sheet(span))
+    hand_in(client, batch_id, token(client, "sara@example.com"), theirs,
+            sheet(range(7140, 7160)))
+    assert client.post(f"/api/batches/{batch_id}/compute", headers=admin).status_code == 200
+
+    bd = token(client, "ali@example.com")
+    rows = listing(client, batch_id, one, bd)
+    assert rows
+    done = client.patch(f"/api/assignments/{rows[0]['id']}",
+                        json={"status": "skipped", "reason": "Rate is too low.",
+                              "every_profile": True}, headers=bd)
+    assert done.status_code == 200, done.text
+    assert stored_status(batch_id, one, rows[0]["id"]) == "skipped"
+
+
+# --------------------------------------------------------------------------- #
+# Editing a cycle that is already running
+#
+# These used to be answerable only when the cycle was opened — the moment a
+# manager knows least, because not one sheet is in yet. Getting the cap wrong
+# meant closing the cycle and starting another, losing the work logged against
+# it.
+# --------------------------------------------------------------------------- #
+
+def test_the_cap_can_be_raised_while_the_cycle_runs(client, admin, new_profile):
+    khuram = new_profile("ali@example.com")
+    zahid = new_profile("sara@example.com")
+    batch_id = open_cycle(client, admin, f"Editable{next(_serial)}", quota=5)
+    hand_in(client, batch_id, token(client, "ali@example.com"), khuram, sheet(range(8000, 8030)))
+    hand_in(client, batch_id, token(client, "sara@example.com"), zahid, sheet(range(8030, 8060)))
+    client.post(f"/api/batches/{batch_id}/compute", headers=admin)
+    assert len(listing(client, batch_id, khuram, token(client, "ali@example.com"))) == 5
+
+    saved = client.patch(f"/api/batches/{batch_id}", json={"quota": 25}, headers=admin)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["quota"] == 25
+
+    client.post(f"/api/batches/{batch_id}/compute", headers=admin)
+    assert len(listing(client, batch_id, khuram, token(client, "ali@example.com"))) == 25
+
+
+def test_lowering_the_cap_never_takes_back_work_already_done(client, admin, new_profile):
+    """The whole reason this is safe to hand a manager."""
+    khuram = new_profile("ali@example.com")
+    zahid = new_profile("sara@example.com")
+    bd = token(client, "ali@example.com")
+    batch_id = open_cycle(client, admin, f"Shrink{next(_serial)}", quota=20)
+    hand_in(client, batch_id, bd, khuram, sheet(range(8100, 8130)))
+    hand_in(client, batch_id, token(client, "sara@example.com"), zahid, sheet(range(8130, 8160)))
+    client.post(f"/api/batches/{batch_id}/compute", headers=admin)
+
+    rows = listing(client, batch_id, khuram, bd)
+    assert len(rows) == 20
+    for row in rows[:12]:
+        assert client.patch(f"/api/assignments/{row['id']}", json={"status": "applied"},
+                            headers=bd).status_code == 200
+
+    assert client.patch(f"/api/batches/{batch_id}", json={"quota": 2},
+                        headers=admin).status_code == 200
+    client.post(f"/api/batches/{batch_id}/compute", headers=admin)
+
+    for row in rows[:12]:
+        assert stored_status(batch_id, khuram, row["id"]) == "applied", \
+            "a job already applied for must survive the cap being cut"
+
+
+def test_a_patch_only_changes_what_it_names(client, admin):
+    batch_id = open_cycle(client, admin, f"Narrow{next(_serial)}", mode="split",
+                          quota=7, one_per_client=True)
+    body = client.patch(f"/api/batches/{batch_id}", json={"quota": 9}, headers=admin).json()
+    assert body["quota"] == 9
+    assert body["mode"] == "split" and body["one_per_client"] is True
+
+
+def test_a_closed_cycle_says_so_rather_than_changing(client, admin):
+    batch_id = open_cycle(client, admin, f"Shut{next(_serial)}", quota=7)
+    client.post(f"/api/batches/{batch_id}/close", headers=admin)
+    refused = client.patch(f"/api/batches/{batch_id}", json={"quota": 9}, headers=admin)
+    assert refused.status_code == 400
+    assert "Reopen" in refused.json()["detail"]
+
+
+def test_a_bd_cannot_change_the_cycle(client, admin):
+    batch_id = open_cycle(client, admin, f"Locked{next(_serial)}", quota=7)
+    refused = client.patch(f"/api/batches/{batch_id}", json={"quota": 900},
+                           headers=token(client, "ali@example.com"))
+    assert refused.status_code in (401, 403)
+
+
+def test_a_nonsense_setting_is_refused(client, admin):
+    batch_id = open_cycle(client, admin, f"Silly{next(_serial)}", quota=7)
+    assert client.patch(f"/api/batches/{batch_id}", json={"mode": "sideways"},
+                        headers=admin).status_code == 400
+    assert client.patch(f"/api/batches/{batch_id}", json={"name": "   "},
+                        headers=admin).status_code == 400
+    assert client.patch(f"/api/batches/{batch_id}", json={"quota": 0},
+                        headers=admin).json()["quota"] == 1
+
+
+
+def test_a_rebuild_keeps_the_ids_the_bd_screen_is_holding(client, admin, new_profile):
+    """Pressing Applied has to work on a list read a minute ago.
+
+    The lists rebuild on a timer and the BD's screen re-reads them every sixty
+    seconds, so for up to a minute after each rebuild the ids on screen are the
+    ones from before it. Rebuilding used to delete every untouched assignment
+    and insert it again, which on Postgres gives it a number the sequence has
+    never issued before — so every one of those presses came back "No such job
+    on your sheet" and the decision was lost. SQLite hands deleted rowids
+    straight back out, which is why this has to be asserted on the rows rather
+    than by watching a request fail here.
+    """
+    khuram = new_profile("ali@example.com")
+    zahid = new_profile("sara@example.com")
+    bd = token(client, "ali@example.com")
+    batch_id = open_cycle(client, admin, f"Stable{next(_serial)}", quota=10)
+    hand_in(client, batch_id, bd, khuram, sheet(range(9000, 9020)))
+    hand_in(client, batch_id, token(client, "sara@example.com"), zahid, sheet(range(9020, 9040)))
+    client.post(f"/api/batches/{batch_id}/compute", headers=admin)
+
+    before = {row["id"]: row["url"] for row in listing(client, batch_id, khuram, bd)}
+    assert before
+    born = stored_born(before)
+    client.post(f"/api/batches/{batch_id}/compute", headers=admin)     # the timer's rebuild
+    after = {row["id"]: row["url"] for row in listing(client, batch_id, khuram, bd)}
+
+    assert after == before, "an untouched job kept on the list must keep its id"
+    assert stored_born(before) == born,         "the row was destroyed and minted again — on Postgres that is a new id"
+
+    # ...and the press that was aimed at the old list still lands.
+    stale = next(iter(before))
+    got = client.patch(f"/api/assignments/{stale}", json={"status": "applied"}, headers=bd)
+    assert got.status_code == 200, got.text
+    assert stored_status(batch_id, khuram, stale) == "applied"
+
+
+def test_a_job_that_leaves_the_list_still_goes(client, admin, new_profile):
+    """Keeping ids must not turn into keeping jobs the cap has pushed out."""
+    khuram = new_profile("ali@example.com")
+    zahid = new_profile("sara@example.com")
+    bd = token(client, "ali@example.com")
+    batch_id = open_cycle(client, admin, f"Trim{next(_serial)}", quota=20)
+    hand_in(client, batch_id, bd, khuram, sheet(range(9100, 9140)))
+    hand_in(client, batch_id, token(client, "sara@example.com"), zahid, sheet(range(9140, 9180)))
+    client.post(f"/api/batches/{batch_id}/compute", headers=admin)
+    assert len(listing(client, batch_id, khuram, bd)) == 20
+
+    client.patch(f"/api/batches/{batch_id}", json={"quota": 6}, headers=admin)
+    client.post(f"/api/batches/{batch_id}/compute", headers=admin)
+    assert len(listing(client, batch_id, khuram, bd)) == 6

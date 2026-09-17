@@ -52,6 +52,11 @@ export default function AdminHome() {
   // The clock. `timerDraft` is only the number in the box before it is set;
   // once a clock is running the cycle itself carries it.
   const [timerDraft, setTimerDraft] = useState(120);
+  // The running cycle's own settings, as they are being edited. Seeded from
+  // the cycle when a different one is picked and left alone after that — the
+  // screen re-reads the cycle every thirty seconds, and re-seeding on every
+  // read would wipe a half-typed cap out from under whoever is typing it.
+  const [settings, setSettings] = useState(null);
   const [figures, setFigures] = useState(null);
   // Which profile's skips are open underneath the figures. One at a time: the
   // reasons are read against a profile, and two tables open at once is a
@@ -88,6 +93,17 @@ export default function AdminHome() {
     // 404 here is the ordinary case — most cycles never have a clock set.
     api.timerReport(current).then(setFigures).catch(() => setFigures(null));
   }, [current]);
+
+  useEffect(() => {
+    if (!detail) { setSettings(null); return; }
+    setSettings({
+      name: detail.name || "",
+      quota: detail.quota,
+      mode: detail.mode,
+      one_per_client: !!detail.one_per_client,
+      auto_build_minutes: detail.auto_build_minutes || 0,
+    });
+  }, [detail?.id]);
 
   const create = async () => {
     setBusy(true);
@@ -164,6 +180,38 @@ export default function AdminHome() {
     }
   };
 
+  /** Save the cycle's settings.
+   *
+   * Nothing is retracted by this. A rebuild only ever replaces the jobs still
+   * sitting untouched, so lowering the cap trims what nobody has started and
+   * raising it hands out more — what somebody has already marked applied or
+   * skipped is their record of this cycle and stays on their list.
+   */
+  const saveSettings = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const saved = await api.updateBatch(current, {
+        name: settings.name.trim(),
+        quota: Math.max(1, Number(settings.quota) || 1),
+        mode: settings.mode,
+        one_per_client: settings.one_per_client,
+        auto_build_minutes: Number(settings.auto_build_minutes),
+      });
+      await refresh(current);
+      setDetail(await api.getBatch(current));
+      setNote({
+        text: saved.auto_build_minutes
+          ? `Saved. The next rebuild uses these — within ${saved.auto_build_minutes} minutes, or press Build now.`
+          : "Saved. Press Build now to put these to work.",
+      });
+    } catch (err) {
+      setNote({ bad: true, text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   /** Set, move or clear the clock. `payload` is passed straight through. */
   const setTimer = async (payload, said) => {
     setBusy(true);
@@ -198,6 +246,13 @@ export default function AdminHome() {
     "Clock cleared. Nobody sees a countdown, and the figures for the window go with it.");
 
   const handedIn = detail?.uploads?.length || 0;
+  const settingsChanged = !!settings && !!detail && (
+    settings.name.trim() !== (detail.name || "")
+    || Number(settings.quota) !== detail.quota
+    || settings.mode !== detail.mode
+    || settings.one_per_client !== !!detail.one_per_client
+    || Number(settings.auto_build_minutes) !== (detail.auto_build_minutes || 0)
+  );
 
   return (
     <div className="stack">
@@ -324,6 +379,89 @@ export default function AdminHome() {
             <div className="notice">
               {handedIn} profile{handedIn === 1 ? " has" : "s have"} handed in. At least two sheets
               are needed before anything can be compared.
+            </div>
+          )}
+
+          {/* The cycle's own settings, while it is running.
+              These used to be answerable only at the moment the cycle was
+              opened — the moment a manager knows least, because not one sheet
+              is in yet. A cap that turns out to be starving half the team meant
+              closing the cycle and starting another, which threw away the work
+              already logged against it. */}
+          {settings && detail.status === "open" && (
+            <div className="card pad stack" style={{ gap: 10 }}>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <b style={{ fontFamily: "var(--display)" }}>Settings for this cycle</b>
+                  <p className="muted" style={{ marginTop: 3, maxWidth: 620 }}>
+                    Change these while it runs. The next build uses them, and nobody loses
+                    anything: only jobs still sitting untouched are re-dealt, so a job somebody
+                    has already marked applied or skipped stays on their list whatever the cap
+                    now says.
+                  </p>
+                </div>
+                <div className="row" style={{ gap: 8 }}>
+                  {settingsChanged && (
+                    <button className="ghost" disabled={busy} onClick={() => setSettings({
+                      name: detail.name || "",
+                      quota: detail.quota,
+                      mode: detail.mode,
+                      one_per_client: !!detail.one_per_client,
+                      auto_build_minutes: detail.auto_build_minutes || 0,
+                    })}>Undo</button>
+                  )}
+                  <button onClick={saveSettings} disabled={busy || !settingsChanged}>
+                    {settingsChanged ? "Save settings" : "Saved"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="row">
+                <label>
+                  Name
+                  <input value={settings.name} style={{ minWidth: 180, marginLeft: 6 }}
+                         onChange={(e) => setSettings({ ...settings, name: e.target.value })} />
+                </label>
+                <label>
+                  Cap per profile
+                  <input type="number" min="1" max="1000" value={settings.quota}
+                         style={{ width: 80, marginLeft: 6 }}
+                         onChange={(e) => setSettings({ ...settings, quota: e.target.value })} />
+                </label>
+                <label>
+                  <input type="checkbox" checked={settings.one_per_client}
+                         onChange={(e) => setSettings({ ...settings, one_per_client: e.target.checked })} />
+                  One job per client, per profile
+                </label>
+                <label>
+                  Rebuild lists
+                  <select value={settings.auto_build_minutes} style={{ marginLeft: 6 }}
+                          onChange={(e) => setSettings({ ...settings, auto_build_minutes: e.target.value })}>
+                    <option value={5}>every 5 minutes</option>
+                    <option value={10}>every 10 minutes</option>
+                    <option value={15}>every 15 minutes</option>
+                    <option value={30}>every 30 minutes</option>
+                    <option value={0}>only when I ask</option>
+                  </select>
+                </label>
+                <label>
+                  Dealing
+                  <select value={settings.mode} style={{ marginLeft: 6 }}
+                          onChange={(e) => setSettings({ ...settings, mode: e.target.value })}>
+                    <option value="cover">cover every profile</option>
+                    <option value="split">split the pool</option>
+                  </select>
+                </label>
+              </div>
+
+              {settingsChanged && settings.mode !== detail.mode && (
+                <p className="hint">
+                  Changing how the pool is dealt only moves jobs nobody has started.
+                  {settings.mode === "split"
+                    ? " From the next build each job goes to one profile."
+                    : " From the next build every profile gets back everything it has not tried."}
+                </p>
+              )}
             </div>
           )}
 

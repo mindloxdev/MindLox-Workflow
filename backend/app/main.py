@@ -472,6 +472,19 @@ class BatchIn(BaseModel):
     auto_build_minutes: int = 10
 
 
+class BatchPatch(BaseModel):
+    """What a manager may change on a cycle that is already running.
+
+    Every field optional and every one absent means "leave it": a screen that
+    edits the cap must not also assert the mode it happened to be showing.
+    """
+    name: Optional[str] = None
+    quota: Optional[int] = None
+    mode: Optional[str] = None
+    one_per_client: Optional[bool] = None
+    auto_build_minutes: Optional[int] = None
+
+
 class TimerIn(BaseModel):
     """Set the cycle clock, or move it. Exactly one of the two is used.
 
@@ -1101,6 +1114,54 @@ def get_batch(batch_id: int, db: Session = Depends(get_db), _: User = Depends(cu
     }
 
 
+@app.patch("/api/batches/{batch_id}")
+def update_batch(batch_id: int, body: BatchPatch, db: Session = Depends(get_db),
+                 _: User = Depends(admin_only)):
+    """Change a running cycle's settings.
+
+    These used to be answerable only once, at the moment the cycle was opened,
+    which is the moment a manager knows least: the cap that looked right before
+    any sheet was in turns out to be starving half the team, and the only way
+    out was to close the cycle and start another one — losing the work already
+    logged against it.
+
+    Nothing here retracts work. A rebuild only ever replaces assignments still
+    sitting at `pending`; a job somebody has already marked applied or skipped
+    is their record of this cycle and stays on their list whatever the cap now
+    says. So lowering the cap trims what nobody has touched, and raising it
+    hands out more.
+
+    The new settings are what the *next* build uses — the one the timer is
+    already going to run, or the one the manager asks for with Build now.
+    Rebuilding here instead would make saving a typo in the cycle's name a
+    minute of the whole team's lists moving under them.
+    """
+    batch = db.get(Batch, batch_id)
+    if not batch:
+        raise HTTPException(404, "No such cycle.")
+    if batch.status != "open":
+        raise HTTPException(400, "This cycle is closed. Reopen it before changing its settings.")
+
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(400, "A cycle needs a name.")
+        batch.name = name[:160]
+    if body.quota is not None:
+        batch.quota = max(1, body.quota)
+    if body.mode is not None:
+        if body.mode not in MODES:
+            raise HTTPException(400, f"Mode must be one of {', '.join(MODES)}.")
+        batch.mode = body.mode
+    if body.one_per_client is not None:
+        batch.one_per_client = body.one_per_client
+    if body.auto_build_minutes is not None:
+        batch.auto_build_minutes = max(0, body.auto_build_minutes)
+
+    db.commit()
+    return batch_json(batch)
+
+
 # --------------------------------------------------------------------------- #
 # Uploads — one sheet per profile, per cycle
 # --------------------------------------------------------------------------- #
@@ -1636,17 +1697,47 @@ def build_lists(db: Session, batch: Batch) -> dict:
     # applied or skipped is their record of this cycle's work, and rebuilding —
     # which now happens on a timer, not just when a manager asks — must not make
     # it vanish from under them.
-    worked = {(a.profile_id, a.job_id) for a in db.scalars(
-        select(Assignment).where(Assignment.batch_id == batch_id,
-                                 Assignment.status != "pending"))}
-    db.execute(delete(Assignment).where(Assignment.batch_id == batch_id,
-                                        Assignment.status == "pending"))
+    #
+    # A row that is still on the same list is *kept*, not deleted and minted
+    # again. It is the same job on the same list either way, but the id is what
+    # the BD's screen holds and what "I applied to this one" is addressed to.
+    # Clearing the whole lot and re-inserting gave every untouched job a new id
+    # on every rebuild, so for the minute between a rebuild and the screen's
+    # next poll — every ten minutes, all day — pressing Applied or Skipped was
+    # answered with "No such job on your sheet" and the BD's decision was lost.
+    #
+    # Invisible to this suite, which runs on SQLite: SQLite hands the deleted
+    # rowids straight back out, so the ids came out identical and the bug only
+    # existed on the Postgres the product actually runs on, where a sequence
+    # never reuses a number.
+    rows = db.scalars(select(Assignment).where(Assignment.batch_id == batch_id)).all()
+    worked = {(a.profile_id, a.job_id) for a in rows if a.status != "pending"}
+    standing = {(a.profile_id, a.job_id): a for a in rows if a.status == "pending"}
+
+    exclusive = batch.mode == SPLIT
+    wanted = {(pid, job_id)
+              for pid, job_ids in assigned.items() for job_id in job_ids
+              if (pid, job_id) not in worked}
+
+    # Gone from the lists: taken by somebody else in a split cycle, pushed out
+    # by the cap, or its sheet withdrawn.
+    retired = [row.id for pair, row in standing.items() if pair not in wanted]
+    for chunk in _chunks(retired):
+        db.execute(delete(Assignment).where(Assignment.id.in_(chunk)))
+
+    # The mode can be changed on a running cycle, and the flag the unique index
+    # reads has to move with it or a cycle switched to split would stop being
+    # held to one profile per job.
+    for pair, row in standing.items():
+        if pair in wanted and row.exclusive != exclusive:
+            row.exclusive = exclusive
     db.flush()
+
     dispatch = [{"batch_id": batch_id, "job_id": job_id, "profile_id": pid,
                  "user_id": owner_of.get(pid), "status": "pending",
-                 "exclusive": batch.mode == SPLIT}
-                for pid, job_ids in assigned.items() for job_id in job_ids
-                if (pid, job_id) not in worked]
+                 "exclusive": exclusive}
+                for pid, job_id in sorted(wanted)
+                if (pid, job_id) not in standing]
     if dispatch:
         db.execute(insert(Assignment), dispatch)
 
@@ -2825,10 +2916,18 @@ def set_status(assignment_id: int, body: StatusIn, db: Session = Depends(get_db)
         for profile in theirs:
             mate = seen.get(profile.id)
             if mate is None:
+                # Never `exclusive`, even in a split cycle. That flag is what
+                # the partial unique index uses to hold "this job was handed
+                # out to exactly one profile", and this row is not a dispatch —
+                # it is a record that this profile turned the posting down.
+                # Copying the flag across from the row being skipped made the
+                # second one collide with the first, so in a split cycle
+                # skipping for every profile failed outright and the BD's
+                # decision was lost.
                 db.add(Assignment(batch_id=row.batch_id, job_id=row.job_id,
                                   profile_id=profile.id, user_id=profile.user_id,
                                   status="skipped", skip_reason=reason[:1000],
-                                  exclusive=row.exclusive,
+                                  exclusive=False,
                                   status_changed_at=utcnow()))
                 also_skipped += 1
             elif mate.status == "pending":

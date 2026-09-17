@@ -3,6 +3,7 @@ so you can unit-test every rule in isolation.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import unicodedata
 import urllib.parse
@@ -179,6 +180,31 @@ def split_url(raw: object) -> tuple[str, str]:
     return site, "/" + rest
 
 
+# `jobs.fingerprint` is VARCHAR(400). Nothing upstream bounds what goes into
+# one — a Workday path can spell the whole job title out, and an L3 key is a
+# client name and a title glued together — so a single very long posting used
+# to fail the whole build's INSERT with "value too long for type character
+# varying(400)" and take every other job in the cycle down with it.
+_FINGERPRINT_MAX = 400
+_FINGERPRINT_DIGEST = 16
+
+
+def _bounded(mark: str) -> str:
+    """Cap a fingerprint at the width of the column that has to hold it.
+
+    Plain truncation would fuse two postings that share a long prefix — the
+    same careers site, the same department, different job — which is exactly
+    the silent merge this module exists to prevent. Replacing the tail with a
+    digest of the whole thing keeps the key inside the column and still tells
+    those two apart, and it is derived only from the input, so the same posting
+    fingerprints identically on every run and in every caller.
+    """
+    if len(mark) <= _FINGERPRINT_MAX:
+        return mark
+    digest = hashlib.sha1(mark.encode("utf-8")).hexdigest()[:_FINGERPRINT_DIGEST]
+    return mark[:_FINGERPRINT_MAX - _FINGERPRINT_DIGEST - 1] + "~" + digest
+
+
 def fingerprint(url: object, title: object, company: object) -> tuple[str, str]:
     """Return (fingerprint, tier). Empty fingerprint means the row is unusable."""
     raw_url = str(url or "").strip()
@@ -193,17 +219,17 @@ def fingerprint(url: object, title: object, company: object) -> tuple[str, str]:
             hit = pattern.search(path if site_scoped else raw_url)
             if hit:
                 value = hit.group(1).lower()
-                return (f"id:{tag}:{site}:{value}" if site_scoped
-                        else f"id:{tag}:{value}"), "L1"
+                return _bounded(f"id:{tag}:{site}:{value}" if site_scoped
+                                else f"id:{tag}:{value}"), "L1"
         clean = canonical_url(raw_url)
         if len(clean) > 8:
-            return f"url:{clean}", "L2"
+            return _bounded(f"url:{clean}"), "L2"
 
     client = normalize_text(company)
     role = normalize_text(title)
     if not client and not role:
         return "", "-"
-    return f"ct:{client}|{role}", "L3"
+    return _bounded(f"ct:{client}|{role}"), "L3"
 
 
 def bucket_key(company: object) -> str:

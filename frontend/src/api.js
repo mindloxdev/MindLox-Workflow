@@ -171,6 +171,10 @@ export const api = {
   listBatches: () => request("/batches"),
   createBatch: (payload) => request("/batches", { method: "POST", body: payload }),
   getBatch: (id) => request(`/batches/${id}`),
+  // Change a running cycle's settings. Every field is optional; whatever is
+  // left out keeps the value it has, so a screen editing the cap does not also
+  // assert the mode it happened to be showing.
+  updateBatch: (id, payload) => request(`/batches/${id}`, { method: "PATCH", body: payload }),
   compute: (id) => request(`/batches/${id}/compute`, { method: "POST" }),
   closeBatch: (id) => request(`/batches/${id}/close`, { method: "POST" }),
   reopenBatch: (id) => request(`/batches/${id}/reopen`, { method: "POST" }),
