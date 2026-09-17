@@ -42,6 +42,13 @@ Version 2.9 gave a cycle a clock. Two nullable-or-defaulted columns on
 `batches`; a cycle that predates them has `timer_minutes` 0, which is exactly
 what "nobody set a clock on this one" means, and no screen shows anything.
 
+Version 3.1 let a BD back-load the months of applying they did before this app
+existed, and take one decision over a whole list at once. `history_imports` is a
+new table create_all makes on its own and nothing else moved: the applications
+an import writes are ordinary applications, and the new workspace switch is a
+row in `settings`, which has never needed a migration for a new switch. So
+upgrading to it is a restart.
+
 Everything below is idempotent. A brand new database skips it entirely.
 """
 from __future__ import annotations

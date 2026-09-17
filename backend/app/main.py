@@ -25,13 +25,14 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy import and_, create_engine, delete, func, insert, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from . import assessments, crm, dashboard, exports, ingest, interviews, matching
+from . import (assessments, crm, dashboard, exports, history, ingest,
+               interviews, matching)
 from .models import (ASSESSMENT_CLOSED, ASSESSMENT_STATUSES, AVAILABILITY,
                      COVER, INTERVIEW_MODES, INTERVIEW_OUTCOMES,
                      INTERVIEW_STAGES, INTERVIEW_STATUSES, MODES, ROLES, SPLIT,
                      Application, Assessment, Assignment, Base, Batch,
-                     BatchApplication, ClientNote, Interview, Job, Profile,
-                     Setting, Upload,
+                     BatchApplication, ClientNote, HistoryImport, Interview,
+                     Job, Profile, Setting, Upload,
                      User, applied_stamp, from_working, next_stage,
                      to_working, utcnow, working_label)
 from .schema import bring_up_to_date
@@ -462,6 +463,9 @@ class ClientNoteIn(BaseModel):
 
 class SettingsIn(BaseModel):
     team_board_visible: Optional[bool] = None
+    # Whether a BD may select a whole list and mark it in one press. See
+    # SETTING_DEFAULTS for what turning it off does and does not do.
+    bulk_actions_enabled: Optional[bool] = None
 
 
 class BatchIn(BaseModel):
@@ -504,6 +508,15 @@ class MappingIn(BaseModel):
     mapping: dict
 
 
+class ImportPatch(BaseModel):
+    """An edit to a history import. Both halves are optional and independent."""
+    mapping: Optional[dict] = None
+    # Whether these postings go on to the other profiles' lists. The BD picks
+    # it when the file is handed in; a manager may change it afterwards on
+    # anybody's import.
+    share_with_team: Optional[bool] = None
+
+
 class EntryIn(BaseModel):
     url: str = ""
     title: str = ""
@@ -527,6 +540,20 @@ class StatusIn(BaseModel):
     # for an Accounts Receivable identity may be exactly right for a Customer
     # Service one. On when the reason is about the job rather than the fit —
     # the rate, the location, a client already being worked.
+    every_profile: bool = False
+
+
+class BulkStatusIn(BaseModel):
+    """One decision, taken over a whole list at once.
+
+    The same three statuses and the same rules as a single row — a skip still
+    has to say why, and the reason is the same sentence for every row in the
+    selection, which is the honest shape of the decision somebody is actually
+    taking when they select two hundred jobs and turn them all down.
+    """
+    ids: list[int]
+    status: str
+    reason: str = ""
     every_profile: bool = False
 
 
@@ -1433,6 +1460,194 @@ def delete_upload(upload_id: int, db: Session = Depends(get_db), user: User = De
 
 
 # --------------------------------------------------------------------------- #
+# History — the months of work that happened before this app
+# --------------------------------------------------------------------------- #
+#
+# A BD arrives here with three months of applying in a spreadsheet and nothing
+# in `applications` to show for it, so every rule that reads history reads them
+# as somebody who has never applied to anything. See app/history.py for what an
+# import writes, why it is not an Upload, and why handing the same file in twice
+# is the repair for rows that went missing rather than a mistake to guard
+# against.
+
+
+def _my_import(import_id: int, db: Session, user: User) -> HistoryImport:
+    record = db.get(HistoryImport, import_id)
+    if not record:
+        raise HTTPException(404, "No such import.")
+    owned_profile(record.profile_id, db, user)
+    return record
+
+
+def import_json(record: HistoryImport, profile: Optional[Profile] = None) -> dict:
+    return {
+        "id": record.id, "profile_id": record.profile_id,
+        "profile": profile.name if profile else "",
+        "batch_id": record.batch_id,
+        "filename": record.filename or "",
+        "share_with_team": bool(record.share_with_team),
+        "headers": record.headers or [], "mapping": record.mapping or {},
+        "row_count": record.row_count or 0,
+        "usable_count": record.usable_count or 0,
+        "cursor": record.cursor or 0,
+        "added": record.added or 0, "already": record.already or 0,
+        "unusable": record.unusable or 0,
+        "jobs": len(record.job_ids or []),
+        "status": record.status,
+        "created_at": working_label(record.created_at)["label"] if record.created_at else "",
+        "finished_at": working_label(record.finished_at)["label"] if record.finished_at else "",
+    }
+
+
+@app.get("/api/history/imports")
+def list_imports(profile_id: Optional[int] = None, db: Session = Depends(get_db),
+                 user: User = Depends(current_user)):
+    """Every back-load this person can see, newest first.
+
+    A BD sees their own profiles' and a manager sees everybody's, which is the
+    same rule as every other screen here. The half-finished ones are what this
+    list is really for: it is where somebody goes when a run was interrupted and
+    they need to carry it on.
+    """
+    query = select(HistoryImport).order_by(HistoryImport.id.desc())
+    allowed = visible_profile_ids(db, user)
+    if profile_id is not None:
+        owned_profile(profile_id, db, user)
+        query = query.where(HistoryImport.profile_id == profile_id)
+    elif allowed is not None:
+        if not allowed:
+            return {"imports": []}
+        query = query.where(HistoryImport.profile_id.in_(allowed))
+
+    records = db.scalars(query.limit(100)).all()
+    profiles = {p.id: p for p in db.scalars(select(Profile).where(
+        Profile.id.in_({r.profile_id for r in records})))} if records else {}
+    return {"imports": [import_json(r, profiles.get(r.profile_id)) for r in records]}
+
+
+@app.post("/api/history/imports", status_code=201)
+def start_import(profile_id: int = Form(...), file: UploadFile = File(...),
+                 share_with_team: bool = Form(True),
+                 db: Session = Depends(get_db), user: User = Depends(current_user)):
+    """Read an old sheet and work out what is in it. Nothing is written yet.
+
+    Two steps rather than one, because the columns have to be right before three
+    thousand rows are filed against a profile and the only person who can say
+    whether the column headed "Link" is the apply link or the description is the
+    person who typed it. So this reads the file, guesses the mapping and says
+    what it found; `/run` is what writes.
+
+    The cycle open right now is recorded on the import, and it is the one cycle
+    whose lists these postings may join — see models.HistoryImport.
+    """
+    profile = owned_profile(profile_id, db, user)
+
+    too_big = "That file is over 15 MB. Split it in two and import them one after the other."
+    if (file.size or 0) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, too_big)
+    raw = file.file.read()
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, too_big)
+    try:
+        frame = ingest.read_table(raw, file.filename or "history.csv")
+    except Exception as exc:
+        raise HTTPException(400, f"Could not read that file: {exc}")
+
+    headers = list(frame.columns)
+    rows = frame.to_dict(orient="records")
+    mapping = ingest.auto_map(headers)
+    prints, usable = history.plan(rows, mapping)
+
+    # The cycle these postings may reach, which is whichever one is open. A
+    # workspace between cycles can still import — the history is recorded, and
+    # it still stops the importer being handed the same posting again — it
+    # simply reaches no colleague, and the screen says so rather than
+    # pretending otherwise.
+    open_batch = db.scalar(select(Batch).where(Batch.status == "open")
+                           .order_by(Batch.id.desc()))
+
+    record = HistoryImport(
+        profile_id=profile.id, user_id=user.id,
+        batch_id=open_batch.id if open_batch else None,
+        filename=(file.filename or "")[:255],
+        share_with_team=bool(share_with_team),
+        headers=headers, mapping=mapping, rows=rows, prints=prints,
+        row_count=len(rows), usable_count=usable, status="ready")
+    db.add(record)
+    db.commit()
+
+    return {**import_json(record, profile), "preview": rows[:5],
+            "fields": ingest.FIELDS,
+            "batch_open": bool(open_batch),
+            "batch_name": open_batch.name if open_batch else ""}
+
+
+@app.patch("/api/history/imports/{import_id}")
+def adjust_import(import_id: int, body: ImportPatch, db: Session = Depends(get_db),
+                  user: User = Depends(current_user)):
+    """Correct the columns, or change who the postings reach.
+
+    The columns can only move before the first row is written. After that the
+    mapping is what the rows already on record were read through, and changing
+    it would make the tallies describe a sheet that was never imported — so a
+    run that has started is remapped by importing the file again, which costs
+    nothing, because everything already filed is recognised and left alone.
+    """
+    record = _my_import(import_id, db, user)
+
+    if body.mapping is not None:
+        if (record.cursor or 0) > 0:
+            raise HTTPException(400, "This import has already started writing. "
+                                     "Import the file again to read it through "
+                                     "different columns — nothing already on "
+                                     "record is written twice.")
+        record.mapping = {k: v for k, v in body.mapping.items()
+                          if k in {f["key"] for f in ingest.FIELDS}}
+        record.prints, record.usable_count = history.plan(record.rows or [],
+                                                          record.mapping)
+    if body.share_with_team is not None:
+        record.share_with_team = bool(body.share_with_team)
+
+    db.commit()
+    return import_json(record, db.get(Profile, record.profile_id))
+
+
+@app.post("/api/history/imports/{import_id}/run")
+def run_import(import_id: int, db: Session = Depends(get_db),
+               user: User = Depends(current_user)):
+    """Write the next slice, and say what it did.
+
+    One call, one chunk, committed on its own. The caller keeps pressing until
+    `done` comes back true; stopping halfway costs nothing, because the import
+    remembers how far it got and what is written is written.
+    """
+    record = _my_import(import_id, db, user)
+    if record.status == "done":
+        return {"done": True, "cursor": record.cursor, "row_count": record.row_count,
+                "added": record.added, "already": record.already,
+                "unusable": record.unusable, "jobs": len(record.job_ids or [])}
+    return history.run_chunk(db, record)
+
+
+@app.delete("/api/history/imports/{import_id}")
+def delete_import(import_id: int, db: Session = Depends(get_db),
+                  user: User = Depends(current_user)):
+    """Forget the sheet. What it filed stays filed.
+
+    Said out loud on the screen, because it is the one thing about this that
+    surprises people. The applications this wrote are the profile's history now
+    and are indistinguishable from any other — there is no undo, because "undo"
+    would mean deleting the record of work that was really done. What goes is
+    the file and its tallies, and the postings stop being offered to colleagues
+    on the next build.
+    """
+    record = _my_import(import_id, db, user)
+    db.delete(record)
+    db.commit()
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
 # Compute — the heart of it
 # --------------------------------------------------------------------------- #
 
@@ -1602,6 +1817,23 @@ def build_lists(db: Session, batch: Batch) -> dict:
     #    that gathered it.
     pool_ids = {job.id for job in seen.values()}
 
+    #    Plus whatever anybody back-loaded into *this* cycle. A BD handing in
+    #    three months of old spreadsheets is handing the team three months of
+    #    postings, and leaving them out would make the import worth something
+    #    to the importer — who is blocked from being offered them again — and
+    #    nothing at all to the colleague who has never seen them. Bounded to
+    #    the cycle the import was filed against, by the same rule as above:
+    #    work belongs to the cycle that gathered it, and a back-load must not
+    #    trail through every cycle from now on.
+    #
+    #    `deferred` is the other half of it. These are months old, and the
+    #    cycle's own postings are this week's: with a cap of forty a list that
+    #    filled up with June before it reached Tuesday would be worse than no
+    #    import at all. So they are placed after everything this cycle
+    #    gathered, and get what room is left.
+    back_loaded = history.shared_postings(db, batch_id)
+    pool_ids |= set(back_loaded)
+
     # 5. What each profile may NOT be given: any posting it has already used.
     #
     #    Used means one of two things and they are blocked identically:
@@ -1648,7 +1880,10 @@ def build_lists(db: Session, batch: Batch) -> dict:
     # than one per job: a few thousand rows on a real workspace.
     used: dict[int, set[str]] = defaultdict(set)
     if participants:
-        history = (
+        # Named `worked` rather than `history`, which is the module this file
+        # imports for back-loading old sheets — one local would have shadowed
+        # it for the rest of the function.
+        worked = (
             select(Application.job_id, Application.profile_id,
                    Job.url, Job.company_key, Job.title)
             .join(Job, Job.id == Application.job_id)
@@ -1659,7 +1894,7 @@ def build_lists(db: Session, batch: Batch) -> dict:
             .where(Assignment.status == "skipped",
                    Assignment.profile_id.in_(participants)),
         )
-        for query in history:
+        for query in worked:
             for job_id, pid, url, company_key, title in db.execute(query).all():
                 blocked[job_id].add(pid)
                 mark = _posting_key(url, company_key, title)
@@ -1673,6 +1908,10 @@ def build_lists(db: Session, batch: Batch) -> dict:
             job_rows[job.id] = job
 
     headline_by_profile = {pid: (profile.headline or "") for pid, profile in all_profiles.items()}
+    # What this cycle's own sheets gathered. A posting in both — somebody
+    # back-loaded it and somebody else handed it in this week — is this week's
+    # work and is not deferred.
+    seen_ids = {job.id for job in seen.values()}
     pool = []
     for job_id in sorted(pool_ids):
         job = job_rows.get(job_id)
@@ -1684,9 +1923,18 @@ def build_lists(db: Session, batch: Batch) -> dict:
         mark = _posting_key(job.url, job.company_key, job.title)
         if mark:
             against |= {pid for pid, marks in used.items() if mark in marks}
+        # The headlines a posting was applied under — this cycle's sheets and
+        # any back-load together, because both are somebody saying "this job
+        # suited that market" and the builder wants every such vote.
+        headlines = headline_by_job.get(job_id, set()) | back_loaded.get(job_id, set())
         pool.append({"job_id": job_id, "company_key": job.company_key or "",
                      "blocked_for": against,
-                     "headlines": headline_by_job.get(job_id, set()),
+                     "headlines": headlines,
+                     # Placed after everything this cycle gathered. A
+                     # three-month back-load must not spend a BD's whole cap on
+                     # June before it reaches this week.
+                     "defer": 1 if (job_id in back_loaded
+                                    and job_id not in seen_ids) else 0,
                      "headline_by_profile": headline_by_profile})
 
     place = matching.cover if batch.mode == COVER else matching.partition
@@ -2853,6 +3101,146 @@ def delete_entry(job_id: int, profile_id: int, db: Session = Depends(get_db),
             "still_held_by": still_held, "kept_for_replies": replied}
 
 
+# --------------------------------------------------------------------------- #
+# Working the list — one job, or the whole selection
+# --------------------------------------------------------------------------- #
+
+STATUSES = ("pending", "applied", "skipped")
+
+# The most rows one press may carry. Not a policy about how much work a person
+# is allowed to get through at once — the browser sends a long selection as
+# several of these and the result is the same — but a bound on how much one
+# request can be asked to do, so a slip of the finger on a five-thousand-row
+# list cannot hold a database transaction open for a minute.
+BULK_MAX = 500
+
+# Why a skip has to say why, here rather than in the browser, so the rule holds
+# for anything that talks to the API. A skip is the one decision on this screen
+# that destroys work: the job leaves this profile's list and no later cycle
+# offers it again. Asking costs one sentence and is the difference between a
+# manager reading "47 skipped" and reading why — which is usually a fixable
+# thing about the searches feeding that profile.
+NEEDS_REASON = ("Say why you are skipping this one. "
+                "Your manager sees the reason, not you deciding alone.")
+
+
+def _mark(row: Assignment, status: str, reason: str) -> None:
+    """One row's status, and the reason that belongs to it."""
+    if status == "skipped":
+        row.skip_reason = reason[:1000]
+    else:
+        # Moving off `skipped` retracts the reason with it, rather than leaving
+        # a stale explanation attached to a job that is back on the list.
+        row.skip_reason = ""
+    row.status = status
+    row.status_changed_at = utcnow()
+
+
+def _record_applied(db: Session, rows: Iterable[Assignment]) -> None:
+    """Close the loop on everything just marked applied.
+
+    It counts as the profile's history from now on, so no later cycle offers it
+    again. Written in one pass rather than one query per row, because the same
+    press may carry two hundred of them.
+    """
+    rows = [row for row in rows if row.status == "applied"]
+    if not rows:
+        return
+    have: set[tuple[int, int]] = set()
+    for chunk in _chunks({row.job_id for row in rows}):
+        have.update(map(tuple, db.execute(
+            select(Application.job_id, Application.profile_id)
+            .where(Application.job_id.in_(chunk))).all()))
+    stamp = applied_stamp()
+    fresh = []
+    for row in rows:
+        if (row.job_id, row.profile_id) in have:
+            continue
+        have.add((row.job_id, row.profile_id))
+        fresh.append({"job_id": row.job_id, "profile_id": row.profile_id,
+                      "user_id": row.user_id, "batch_id": row.batch_id,
+                      "applied_on": stamp})
+    for chunk in _chunks(fresh):
+        db.execute(insert(Application), chunk)
+
+
+def _skip_for_other_profiles(db: Session, rows: list[Assignment], reason: str,
+                             user: User) -> int:
+    """The same skip against every other name this person applies under.
+
+    Per profile is the right default and stays the default: two profiles are
+    two candidates in two markets, and a posting wrong for one is often right
+    for the other. But when the reason is about the job rather than the fit —
+    the rate, on-site only, a client already being worked — a BD was turning
+    the same posting down once per profile, week after week, and reasonably
+    read that as the skip not working.
+
+    Written as real rows rather than a flag, so every rule that already reads a
+    skip — what the next build may not hand out, what the manager's report
+    counts as turned down — sees this one without being taught about it.
+    """
+    if not rows:
+        return 0
+    by_cycle: dict[int, list[Assignment]] = defaultdict(list)
+    for row in rows:
+        by_cycle[row.batch_id].append(row)
+
+    also = 0
+    for batch_id, cycle_rows in by_cycle.items():
+        # In the round, not merely on the payroll: a profile that handed
+        # nothing in this cycle, or already holds this job, is one this
+        # decision can honestly speak for. One that has been dormant for a
+        # month was never offered the posting and must not be recorded as
+        # having turned it down.
+        taking_part = set(db.scalars(select(Upload.profile_id).where(
+            Upload.batch_id == batch_id)).all())
+        taking_part |= set(db.scalars(select(Assignment.profile_id).where(
+            Assignment.batch_id == batch_id)).all())
+        theirs = [p for p in db.scalars(select(Profile).where(
+            Profile.user_id == user.id, Profile.is_active == True))   # noqa: E712
+            if p.id in taking_part]
+        if not theirs:
+            continue
+
+        seen: dict[tuple[int, int], Assignment] = {}
+        for chunk in _chunks({row.job_id for row in cycle_rows}):
+            for mate in db.scalars(select(Assignment).where(
+                    Assignment.batch_id == batch_id,
+                    Assignment.job_id.in_(chunk),
+                    Assignment.profile_id.in_([p.id for p in theirs]))):
+                seen[(mate.job_id, mate.profile_id)] = mate
+
+        for row in cycle_rows:
+            for profile in theirs:
+                if profile.id == row.profile_id:
+                    continue
+                mate = seen.get((row.job_id, profile.id))
+                if mate is None:
+                    # Never `exclusive`, even in a split cycle. That flag is
+                    # what the partial unique index uses to hold "this job was
+                    # handed out to exactly one profile", and this row is not a
+                    # dispatch — it is a record that this profile turned the
+                    # posting down. Copying the flag across from the row being
+                    # skipped made the second one collide with the first, so in
+                    # a split cycle skipping for every profile failed outright
+                    # and the BD's decision was lost.
+                    mate = Assignment(batch_id=batch_id, job_id=row.job_id,
+                                      profile_id=profile.id, user_id=profile.user_id,
+                                      status="skipped", skip_reason=reason[:1000],
+                                      exclusive=False, status_changed_at=utcnow())
+                    db.add(mate)
+                    seen[(row.job_id, profile.id)] = mate
+                    also += 1
+                elif mate.status == "pending":
+                    # Never over an `applied`: that profile has already used the
+                    # posting, and rewriting it as turned down would erase the work.
+                    mate.status = "skipped"
+                    mate.skip_reason = reason[:1000]
+                    mate.status_changed_at = utcnow()
+                    also += 1
+    return also
+
+
 @app.patch("/api/assignments/{assignment_id}")
 def set_status(assignment_id: int, body: StatusIn, db: Session = Depends(get_db),
                user: User = Depends(current_user)):
@@ -2860,94 +3248,19 @@ def set_status(assignment_id: int, body: StatusIn, db: Session = Depends(get_db)
     if not row:
         raise HTTPException(404, "No such job on your sheet.")
     owned_profile(row.profile_id, db, user)
-    if body.status not in ("pending", "applied", "skipped"):
+    if body.status not in STATUSES:
         raise HTTPException(400, "Status must be pending, applied or skipped.")
 
-    # A skip is the only status that destroys work: the job leaves this
-    # profile's list and no later cycle offers it again. Asking why costs one
-    # sentence and is the difference between a manager reading "47 skipped"
-    # and reading why — which is usually a fixable thing about the searches
-    # feeding that profile. Enforced here rather than in the browser so it
-    # holds for anything that talks to the API.
     reason = (body.reason or "").strip()
-    if body.status == "skipped":
-        if not reason:
-            raise HTTPException(400, "Say why you are skipping this one. "
-                                     "Your manager sees the reason, not you deciding alone.")
-        row.skip_reason = reason[:1000]
-    else:
-        # Moving off `skipped` retracts the reason with it, rather than leaving
-        # a stale explanation attached to a job that is back on the list.
-        row.skip_reason = ""
+    if body.status == "skipped" and not reason:
+        raise HTTPException(400, NEEDS_REASON)
 
-    row.status = body.status
-    row.status_changed_at = utcnow()
-
-    # A skip against every name this person applies under.
-    #
-    # Per profile is the right default and stays the default: two profiles are
-    # two candidates in two markets, and a posting wrong for one is often right
-    # for the other. But when the reason is about the job rather than the fit —
-    # the rate, on-site only, a client already being worked — a BD was turning
-    # the same posting down once per profile, week after week, and reasonably
-    # read that as the skip not working.
-    #
-    # Written as real rows rather than a flag, so every rule that already reads
-    # a skip — what the next build may not hand out, what the manager's report
-    # counts as turned down — sees this one without being taught about it.
-    also_skipped = 0
-    if body.status == "skipped" and body.every_profile:
-        # In the round, not merely on the payroll: a profile that handed
-        # nothing in this week, or already holds this job, is one this
-        # decision can honestly speak for. One that has been dormant for a
-        # month was never offered the posting and must not be recorded as
-        # having turned it down.
-        taking_part = set(db.scalars(select(Upload.profile_id).where(
-            Upload.batch_id == row.batch_id)).all())
-        taking_part |= set(db.scalars(select(Assignment.profile_id).where(
-            Assignment.batch_id == row.batch_id)).all())
-        theirs = [p for p in db.scalars(select(Profile).where(
-            Profile.user_id == user.id, Profile.is_active == True,   # noqa: E712
-            Profile.id != row.profile_id))
-            if p.id in taking_part]
-        seen = {a.profile_id: a for a in db.scalars(select(Assignment).where(
-            Assignment.job_id == row.job_id, Assignment.batch_id == row.batch_id,
-            Assignment.profile_id.in_([p.id for p in theirs])))} if theirs else {}
-        for profile in theirs:
-            mate = seen.get(profile.id)
-            if mate is None:
-                # Never `exclusive`, even in a split cycle. That flag is what
-                # the partial unique index uses to hold "this job was handed
-                # out to exactly one profile", and this row is not a dispatch —
-                # it is a record that this profile turned the posting down.
-                # Copying the flag across from the row being skipped made the
-                # second one collide with the first, so in a split cycle
-                # skipping for every profile failed outright and the BD's
-                # decision was lost.
-                db.add(Assignment(batch_id=row.batch_id, job_id=row.job_id,
-                                  profile_id=profile.id, user_id=profile.user_id,
-                                  status="skipped", skip_reason=reason[:1000],
-                                  exclusive=False,
-                                  status_changed_at=utcnow()))
-                also_skipped += 1
-            elif mate.status == "pending":
-                # Never over an `applied`: that profile has already used the
-                # posting, and rewriting it as turned down would erase the work.
-                mate.status = "skipped"
-                mate.skip_reason = reason[:1000]
-                mate.status_changed_at = utcnow()
-                also_skipped += 1
-
-    # Marking it applied closes the loop: it counts as this profile's history
-    # from now on, so no later cycle offers it again.
-    if body.status == "applied":
-        exists = db.scalar(select(Application).where(Application.job_id == row.job_id,
-                                                     Application.profile_id == row.profile_id))
-        if not exists:
-            db.add(Application(job_id=row.job_id, profile_id=row.profile_id,
-                               user_id=row.user_id, batch_id=row.batch_id,
-                               applied_on=applied_stamp()))
+    _mark(row, body.status, reason)
+    also_skipped = (_skip_for_other_profiles(db, [row], reason, user)
+                    if body.status == "skipped" and body.every_profile else 0)
+    _record_applied(db, [row])
     db.commit()
+
     application = db.scalar(select(Application).where(
         Application.job_id == row.job_id,
         Application.profile_id == row.profile_id))
@@ -2957,6 +3270,79 @@ def set_status(assignment_id: int, body: StatusIn, db: Session = Depends(get_db)
             "applied_on": application.applied_on if application else ""}
 
 
+@app.post("/api/assignments/bulk")
+def set_status_many(body: BulkStatusIn, db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    """One decision over a whole selection.
+
+    A BD coming off three months of spreadsheets has a list of several hundred
+    postings where the answer to every one of them is the same — already
+    applied for under this name before the app existed, or a client the team
+    stopped working in June. Taking that decision three hundred times, one
+    dropdown at a time, is not more careful than taking it once; it is the same
+    decision typed out three hundred times, with three hundred chances to
+    mis-click a neighbouring row.
+
+    So this is the same rules, applied to a list. Every row is checked for
+    ownership, a skip still has to say why, and the reason is written onto
+    every row in the selection — which is the honest shape of the thing: one
+    reason is what the person actually has.
+
+    The manager can take it away. `bulk_actions_enabled` is a workspace switch
+    and the check is here, on the server, so turning it off is a rule rather
+    than a hidden button.
+    """
+    if body.status not in STATUSES:
+        raise HTTPException(400, "Status must be pending, applied or skipped.")
+    if not read_settings(db)["bulk_actions_enabled"]:
+        raise HTTPException(403, "Your manager has turned off marking a whole list "
+                                 "at once. Set the jobs one at a time, or ask them "
+                                 "to switch it back on.")
+
+    ids = list(dict.fromkeys(int(i) for i in body.ids))
+    if not ids:
+        raise HTTPException(400, "Nothing was selected.")
+    if len(ids) > BULK_MAX:
+        raise HTTPException(400, f"That is {len(ids)} jobs in one go, and {BULK_MAX} "
+                                 "is the most one press may carry. Narrow the list "
+                                 "or do it in two.")
+
+    reason = (body.reason or "").strip()
+    if body.status == "skipped" and not reason:
+        raise HTTPException(400, NEEDS_REASON)
+
+    rows: list[Assignment] = []
+    for chunk in _chunks(ids):
+        rows.extend(db.scalars(select(Assignment).where(Assignment.id.in_(chunk))))
+    if not rows:
+        raise HTTPException(404, "None of those jobs are on your sheet any more. "
+                                 "Reload — somebody may have rebuilt the lists.")
+
+    # Ownership once per profile rather than once per row, and checked for
+    # every row before a single one is written. A selection that reaches
+    # somebody else's profile is refused whole: half-applying it would leave
+    # the person who pressed it with no way to know which half went through.
+    for profile_id in {row.profile_id for row in rows}:
+        owned_profile(profile_id, db, user)
+
+    for row in rows:
+        _mark(row, body.status, reason)
+    also_skipped = (_skip_for_other_profiles(db, rows, reason, user)
+                    if body.status == "skipped" and body.every_profile else 0)
+    _record_applied(db, rows)
+    db.commit()
+
+    return {"ok": True, "status": body.status, "updated": len(rows),
+            # Said plainly, because it is the number somebody checks against
+            # what they thought they had selected. Rows can go missing between
+            # selecting and pressing — a rebuild takes an untouched job off a
+            # list — and a silent difference is the one thing that would make
+            # this button untrustworthy.
+            "missing": len(ids) - len(rows),
+            "ids": [row.id for row in rows],
+            "also_skipped": also_skipped}
+
+
 # --------------------------------------------------------------------------- #
 # Workspace switches
 # --------------------------------------------------------------------------- #
@@ -2964,7 +3350,26 @@ def set_status(assignment_id: int, body: StatusIn, db: Session = Depends(get_db)
 # Every switch and its value on a workspace that has never touched the screen.
 # Reading falls back to these, so a missing row is the default rather than an
 # error, and adding a switch never needs a migration.
-SETTING_DEFAULTS = {"team_board_visible": False}
+SETTING_DEFAULTS = {
+    "team_board_visible": False,
+    # Whether a BD may select a whole list and mark it in one press.
+    #
+    # On by default, unlike the team board, because the two switches are about
+    # opposite things. The board is somebody else's figures put in front of a
+    # person who did not ask to be measured, so it waits to be turned on. This
+    # one is a person's own list and their own decision — the same decision the
+    # dropdown on every row already lets them take — taken once instead of three
+    # hundred times. Withholding it by default would mean every new workspace
+    # starts by making its team do the tedious version of something they are
+    # already allowed to do.
+    #
+    # It is a switch rather than a fixture because a manager may reasonably
+    # decide a particular team should look at every posting before turning it
+    # down. Turning it off does not touch anything already marked; it takes away
+    # the press from then on, and the server refuses it as well as the screen
+    # hiding it.
+    "bulk_actions_enabled": True,
+}
 
 
 def read_settings(db: Session) -> dict:

@@ -625,3 +625,92 @@ class Assessment(Base):
         # deadline first.
         Index("ix_assessment_profile_due", "profile_id", "due_at"),
     )
+
+
+class HistoryImport(Base):
+    """A back-load of work done before the app, handed in by the BD themselves.
+
+    A team that has been applying for months arrives with months of spreadsheets
+    and nothing in `applications` to show for it — so cover mode dispatches them
+    postings they already worked in July, and the duplication figures read as if
+    nobody had ever applied to anything. `import_old_sheets.py` fixed that once,
+    from a terminal, for one workbook whose tabs were hand-mapped in the source.
+    This is the same job as a thing a BD can do for their own profile, with
+    their own file, as many times as it takes.
+
+    WHY IT IS NOT AN `Upload`
+
+    An `Upload` belongs to a cycle and is the profile's work *for that cycle*:
+    it is counted in the cycle's report, in everybody's duplication figures, and
+    in "handed in 40". Three months of history is none of those things. So the
+    applications this writes carry `batch_id = NULL`, exactly as the script's
+    do — history, not this week's work.
+
+    `batch_id` here means something different: the cycle that was open when the
+    import ran, and therefore the one cycle whose lists these postings may join.
+    Without it a back-load would either reach nobody — history that blocks the
+    importer and helps no colleague — or leak into every future cycle forever.
+    Bounded to one cycle is the same rule the builder already keeps for sheets:
+    work belongs to the cycle that gathered it.
+
+    WHY THE ROW SURVIVES THE RUN
+
+    Three thousand rows is not one request. The run walks the sheet in chunks
+    and `cursor` is how far it got, so a closed laptop, a dropped connection or
+    a restarted server costs the rows that were in flight and nothing else —
+    pressing resume carries on from the row after the last one written.
+
+    And re-handing in the same file is the repair for anything that still went
+    missing. Jobs are looked up by fingerprint and `applications` is
+    UNIQUE(job_id, profile_id), so of three thousand rows the two thousand seven
+    hundred and fifty already on record are recognised and left alone, and only
+    the two hundred and fifty that never landed are written. The tallies below
+    are what makes that visible instead of merely true: `added` is what this run
+    put in, `already` what it found was there, `unusable` what carries no link
+    and no client and can never be imported by anybody.
+    """
+    __tablename__ = "history_imports"
+    id = Column(Integer, primary_key=True)
+    profile_id = Column(Integer, ForeignKey("profiles.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    # The cycle open when this was handed in — whose lists these postings may
+    # join, and nothing beyond it. NULL when no cycle was open, which is fine:
+    # the history is still recorded, it simply reaches no colleague.
+    batch_id = Column(Integer, ForeignKey("batches.id", ondelete="SET NULL"),
+                      nullable=True, index=True)
+
+    filename = Column(String(255), nullable=False, default="")
+    # Whether the postings go on to the other profiles' lists, or only into this
+    # profile's own history. On by default — a colleague who has never applied
+    # to a job a teammate worked in July is exactly who should be offered it —
+    # and the manager can turn it off on any import.
+    share_with_team = Column(Boolean, nullable=False, default=True)
+
+    headers = Column(JSON, default=list)
+    mapping = Column(JSON, default=dict)
+    rows = Column(JSON, default=list)
+    # One fingerprint per row of `rows`, in the same order, empty where the row
+    # carries nothing a job can be identified by. Computed once when the sheet
+    # arrives and again if the columns are remapped, so a run is a slice and a
+    # loop rather than re-deriving three thousand fingerprints per chunk — and
+    # so the near-duplicate merge sees the whole sheet at once, which it could
+    # not do if each chunk fingerprinted only itself.
+    prints = Column(JSON, default=list)
+
+    row_count = Column(Integer, nullable=False, default=0)
+    usable_count = Column(Integer, nullable=False, default=0)
+    # How far the run has got, as an index into `rows`.
+    cursor = Column(Integer, nullable=False, default=0)
+    added = Column(Integer, nullable=False, default=0)
+    already = Column(Integer, nullable=False, default=0)
+    unusable = Column(Integer, nullable=False, default=0)
+    # Every posting this import resolved, whether it wrote the application or
+    # found one already there. This is what the builder reads to put them on
+    # the other profiles' lists, so it has to be all of them: a job a colleague
+    # has never seen is no less worth offering them because this profile had
+    # already recorded it.
+    job_ids = Column(JSON, default=list)
+
+    status = Column(String(16), nullable=False, default="ready")  # ready | running | done
+    created_at = Column(DateTime, default=utcnow)
+    finished_at = Column(DateTime, nullable=True)

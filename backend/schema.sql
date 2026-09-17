@@ -286,6 +286,68 @@ CREATE INDEX IF NOT EXISTS ix_interviews_previous_id  ON interviews (previous_id
 CREATE INDEX IF NOT EXISTS ix_interview_profile_time
     ON interviews (profile_id, scheduled_at);
 
+-- ─── history_imports ────────────────────────────────────────────────────────
+-- A back-load of the months of work a BD did before this app existed.
+--
+-- NOT an upload. An `upload` belongs to a cycle and is that profile's work for
+-- it, counted in the cycle's report, in the duplication matrix and in "handed
+-- in 40". Three months of old spreadsheet is none of those, so what this writes
+-- is `jobs` and `applications` with `batch_id` left NULL — history, not this
+-- week's work.
+--
+-- `batch_id` HERE means something else: the cycle that was open when the import
+-- ran, and therefore the one cycle whose lists these postings may join. Without
+-- it a back-load would either reach no colleague at all or trail through every
+-- cycle from now on.
+--
+-- `cursor` is how far the run has got. Three thousand rows is not one request,
+-- so a run walks the sheet in chunks and each one commits on its own; a closed
+-- laptop costs the rows in flight and nothing else. Handing the same file in
+-- again is the repair for anything that still went missing — jobs are looked up
+-- by fingerprint and `applications` is UNIQUE(job_id, profile_id), so what is
+-- already on record is recognised and left alone and only the gaps are written.
+CREATE TABLE IF NOT EXISTS history_imports (
+    id              SERIAL PRIMARY KEY,
+    profile_id      INTEGER NOT NULL REFERENCES profiles (id),
+    user_id         INTEGER REFERENCES users (id),
+    batch_id        INTEGER REFERENCES batches (id) ON DELETE SET NULL,
+
+    filename        VARCHAR(255) NOT NULL DEFAULT '',
+    -- Whether these postings go on to the other profiles' lists, or only into
+    -- this profile's own record.
+    share_with_team BOOLEAN NOT NULL DEFAULT TRUE,
+
+    headers         JSONB DEFAULT '[]'::jsonb,
+    mapping         JSONB DEFAULT '{}'::jsonb,
+    rows            JSONB DEFAULT '[]'::jsonb,
+    -- One fingerprint per row of `rows`, in the same order, empty where the row
+    -- carries nothing a posting can be identified by. Worked out once so a run
+    -- is a slice rather than three thousand fingerprints per chunk — and so the
+    -- near-duplicate merge sees the whole sheet at once, which it could not do
+    -- if each chunk fingerprinted only itself.
+    prints          JSONB DEFAULT '[]'::jsonb,
+
+    row_count       INTEGER NOT NULL DEFAULT 0,
+    usable_count    INTEGER NOT NULL DEFAULT 0,
+    cursor          INTEGER NOT NULL DEFAULT 0,
+    added           INTEGER NOT NULL DEFAULT 0,
+    already         INTEGER NOT NULL DEFAULT 0,
+    unusable        INTEGER NOT NULL DEFAULT 0,
+    -- Every posting this import resolved, whether it wrote the application or
+    -- found one already there. All of them, because a job a colleague has never
+    -- seen is no less worth offering them because this profile had it already.
+    job_ids         JSONB DEFAULT '[]'::jsonb,
+
+    status          VARCHAR(16) NOT NULL DEFAULT 'ready',
+    created_at      TIMESTAMP DEFAULT (now() AT TIME ZONE 'utc'),
+    finished_at     TIMESTAMP,
+    CONSTRAINT ck_history_imports_status
+        CHECK (status IN ('ready', 'running', 'done'))
+);
+CREATE INDEX IF NOT EXISTS ix_history_imports_profile_id ON history_imports (profile_id);
+CREATE INDEX IF NOT EXISTS ix_history_imports_user_id    ON history_imports (user_id);
+CREATE INDEX IF NOT EXISTS ix_history_imports_batch_id   ON history_imports (batch_id);
+
 -- ─── assessments ────────────────────────────────────────────────────────────
 -- A take-home, a test, a written exercise. Its own table rather than a field
 -- on an interview, because a client can send a test before anybody has spoken
@@ -351,6 +413,7 @@ COMMIT;
 -- Run this. It is not optional if the project is on the internet.
 
 ALTER TABLE users              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE history_imports    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE profiles           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE settings           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE batches            ENABLE ROW LEVEL SECURITY;
@@ -375,9 +438,9 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
 --   SELECT table_name FROM information_schema.tables
 --    WHERE table_schema = 'public' ORDER BY table_name;
 --
--- Expect exactly eleven: applications, assessments, assignments,
--- batch_applications, batches, interviews, jobs, profiles, settings, uploads,
--- users.
+-- Expect exactly twelve: applications, assessments, assignments,
+-- batch_applications, batches, history_imports, interviews, jobs, profiles,
+-- settings, uploads, users.
 --
 -- The first manager account is not created here. Set ADMIN_EMAIL and
 -- ADMIN_PASSWORD on the service and the app makes it once, on an empty

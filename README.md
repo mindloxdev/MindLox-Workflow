@@ -1230,10 +1230,123 @@ from both; a row that has never been built is simply dropped.
 
 ---
 
-## Loading history from the old spreadsheets
+## Bringing in the work you did before this app
 
-Before the app, the team kept one tab per BD in a single workbook. `import_old_sheets.py`
-loads those into the database as history:
+A team that has been applying for three months arrives here with three months in
+a spreadsheet and nothing in the system to show for it. Every rule that reads
+history then reads them as somebody who has never applied to anything: cover mode
+hands them back postings they worked in July, the duplication figures say nobody
+has collided with anybody, and the first month on the new system is spent doing
+the last three again.
+
+**My work → Own jobs → Import past work.** A BD drops their own old sheet in,
+checks the columns, and presses import. What it writes is `jobs` and
+`applications` for that profile — the all-time record — and *not* an upload, so
+none of it lands in this week's cycle report, this week's duplication matrix or
+anybody's "handed in 40". Months-old work counted as this week's would be worse
+than not having it at all.
+
+### It goes to the rest of the team too
+
+Tick **offer these to the rest of the team**, which is on by default, and those
+postings join the pool of whichever cycle is open — so a colleague who has never
+applied to one gets it on their **others' jobs** list, tagged with who found it
+and when. The importer never gets their own back: they are on record as having
+applied, which is precisely what blocks them.
+
+They are placed **after** everything the cycle itself gathered. These are months
+old and some will be filled, so with a cap of forty a list that filled up with
+June before it reached Tuesday would be worse than no import at all. They take
+whatever room is left.
+
+Bounded to one cycle, by the same rule as everything else here: the import
+records which cycle was open when it ran, and those postings join that cycle's
+lists and no later one. Work belongs to the cycle that gathered it. A BD who
+imports while no cycle is open still gets the history — it still stops them being
+handed the same posting twice — it simply reaches nobody else, and the screen
+says so.
+
+The manager can switch any import off after the fact, on anybody's sheet.
+Nothing already dispatched is taken back off anyone; it stops feeding the lists
+from the next build.
+
+### Nothing goes missing, and if it does the fix is the same file
+
+This is the part worth trusting, because it is the part that goes wrong quietly.
+Three thousand rows is not one request, so a run walks the sheet four hundred at
+a time and each chunk commits on its own. A closed laptop, a dropped connection
+or a restarted server costs the rows that were in flight and nothing else — the
+import remembers how far it got, the screen offers **carry on**, and it resumes
+from the row after the last one written.
+
+And if rows still went missing — 3,000 in the file, 2,750 in the system, and no
+way to tell which 250 — **hand in the same file again.** Jobs are looked up by
+fingerprint and `applications` is UNIQUE(job_id, profile_id), so the 2,750
+already on record are recognised and left exactly as they are, not rewritten and
+not re-dated, and only the 250 that never landed are inserted. The run comes back
+saying so:
+
+> **250 added** · **2,750 already on record** · 4 unreadable — of 3,004 rows in the file
+
+"Unreadable" is the only number no amount of re-importing will change: those rows
+carry no job link, no client and no title, so there is nothing in them to
+identify a posting by. Usually they are blank lines and notes typed in the
+margin. They are reported rather than silently dropped, because a row that
+disappears without a word is the thing that makes somebody stop believing the
+total.
+
+**Dates.** Excel decides for itself how to read what somebody typed and reads a
+fair number of day-first dates month-first — "10/07/2026" was the 10th of July
+and is stored as the 7th of October. They are recognisable without guessing,
+because they land in the future and these are sheets of work already done, so the
+importer swaps them back and leaves alone anything that does not survive the
+swap. Every stamp is normalised to `YYYY-MM-DD`, because "found on" compares
+these across everybody holding a posting and two shapes would order wrongly.
+
+---
+
+## Marking a whole list at once
+
+A BD coming off three months of spreadsheets has a list of several hundred
+postings where the answer to every one is the same — already applied to under
+this name before the app existed, or a client the team stopped working in June.
+Taking that decision three hundred times, one dropdown at a time, is not more
+careful than taking it once. It is the same decision typed out three hundred
+times, with three hundred chances to mis-click the row below.
+
+So **others' jobs** carries **Select all**, and one press marks the selection
+applied or skipped.
+
+* **All means what is on screen**, never what is behind the filter. Somebody who
+  has narrowed the list to one client and pressed select-all has said something
+  about that client; quietly including the four hundred rows they filtered out
+  would be the opposite of what they asked for.
+* **A skip still has to say why**, and the one reason goes on every row in the
+  selection — which is the honest shape of it: one reason is what the person
+  actually has. The manager reads them back under **Skipped, and why** exactly as
+  they read a single skip.
+* **Same rules, no shortcuts.** Marked applied is the profile's history from then
+  on; skipped retires the posting from that profile for good. Every row is
+  checked for ownership before a single one is written, and a selection that
+  reaches somebody else's profile is refused whole rather than half-applied.
+* A long selection goes up in slices. The server takes 500 rows a press and the
+  screen sends as many presses as it takes.
+
+**The manager can take it away.** Manager → **Cycles** → *What your team's
+screens offer* → *Let a BD select a whole list and mark it in one press*. On by
+default, because it is a person's own list and their own decision, taken once
+instead of three hundred times. Turn it off for a team you want reading each
+posting before it is turned down: nothing already marked changes, the button
+leaves the BD's screen, and the API refuses the press as well — so it is a rule,
+not a hidden button.
+
+---
+
+## Loading history from one workbook, from the terminal
+
+The other way in, and still the right one for a single workbook holding the whole
+team's tabs — the shape the old sheets were actually in before anybody had their
+own file. `import_old_sheets.py` loads those into the database as history:
 
 ```bash
 cd backend
@@ -1267,10 +1380,16 @@ land in the future and these are sheets of work already done. Every one becomes
 a real past date when the numbers change places, so the importer swaps them and
 leaves alone anything that does not survive the swap.
 
-**Running it twice is safe.** `applications` is UNIQUE(job_id, profile_id) and
-jobs are looked up by fingerprint before being created, so a second run inserts
-nothing. That is what makes the dry run worth trusting — the counts it prints
-are what a real run would write.
+**Running it twice is safe**, for the same reason handing the same file in twice
+is safe on the screen: `applications` is UNIQUE(job_id, profile_id) and jobs are
+looked up by fingerprint before being created, so a second run inserts nothing.
+That is what makes the dry run worth trusting — the counts it prints are what a
+real run would write.
+
+It shares the date reader with the screen version (`app/history.py`), so a
+workbook read from a terminal and a sheet dropped on a browser file identical
+stamps. Two copies of that would order two records of one posting differently for
+as long as both were held.
 
 ---
 
@@ -1526,6 +1645,8 @@ backend/
     interviews.py The diary, the ladder and the funnel — read-only too
     assessments.py Assessments and their deadlines — read-only too
     ingest.py     Spreadsheet reading and column auto-detection
+    history.py    Back-loading old spreadsheets — chunked, resumable, and safe
+                  to re-run, which is how rows that went missing are recovered
     exports.py    Excel output — dispatched lists, the cycle report, the pipeline
     schema.py     The v1 -> v2 upgrade, and the columns added since
     __init__.py   Reads backend/.env, before anything else reads the environment
@@ -1533,9 +1654,9 @@ backend/
   conftest.py     Clears DATABASE_URL so the tests never touch a real database
   schema.sql      The whole Postgres schema, for review or for Supabase
   seed.py         First accounts, profiles, developers and the sample data
-  import_old_sheets.py  The team's pre-app spreadsheets, loaded as history
+  import_old_sheets.py  One workbook of pre-app tabs, loaded from the terminal
   test_matching.py, test_e2e.py, test_dashboard.py, test_developer.py,
-  test_pipeline.py, test_crm.py     233 tests in all
+  test_pipeline.py, test_crm.py, test_history.py     316 tests in all
 
 frontend/
   src/
@@ -1551,14 +1672,18 @@ frontend/
       ManagerCRM.jsx       Clients: the board, the table and one client whole
       ManagerSummary.jsx   The manager's plain-English half: what needs you,
                            the four numbers, effort spent twice, the team table
-      BdHome.jsx           Logging jobs and working the list
+      BdHome.jsx           Logging jobs and working the list, including
+                           selecting a whole list and marking it in one press
+      ImportHistory.jsx    Bringing in the months of applying that happened
+                           before this app — the columns, the progress, and
+                           what every run added, found and could not read
       DevHome.jsx          A developer's day — the diary and their record
       DevProfiles.jsx      What a client is handed, kept by the developer
       Interviews.jsx       Scheduling and the diary — one component, three screens
       JobRecord.jsx        Every job ever applied for, searched, and the
                            interview started from a row
       Assessments.jsx      Assessments: set on one side, done on the other
-      AdminHome.jsx        Running cycles
+      AdminHome.jsx        Running cycles, and the workspace switches
       People.jsx           People, profiles, developers, and who is on the board
       shell.jsx            Toasts, the command palette and the theme — the
                            parts that outlive whichever screen is mounted

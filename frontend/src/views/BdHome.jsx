@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { api, download, safeUrl } from "../api.js";
 import Assessments from "./Assessments.jsx";
 import EntryTable from "./EntryTable.jsx";
+import ImportHistory from "./ImportHistory.jsx";
 import Interviews from "./Interviews.jsx";
 import JobRecord from "./JobRecord.jsx";
 import { ActionList, bdTodo } from "./Todo.jsx";
@@ -37,15 +38,29 @@ export default function BdHome({ pane = null, onPaneSeen }) {
   const [tab, setTab] = useState("applied");
   const [diary, setDiary] = useState(null);   // interview counts, for the badge
   const [tests, setTests] = useState(null);   // assessment counts, for the badge
-  const [how, setHow] = useState("type");      // type | upload
+  const [how, setHow] = useState("type");      // type | upload | history
+  // The workspace switches. Only one matters on this screen: whether a whole
+  // selection may be marked in one press. Read rather than assumed, because
+  // the server refuses the press when it is off and a button that throws is
+  // worse than a button that is not there.
+  const [switches, setSwitches] = useState({ bulk_actions_enabled: false });
+  // Which of the others' jobs are ticked, by assignment id. A Set rather than
+  // a flag on each row: the rows are replaced wholesale every time the lists
+  // rebuild, and a selection kept on them would be wiped every sixty seconds.
+  const [picked, setPicked] = useState(() => new Set());
+  // True while a whole selection is being written. The press goes up in
+  // slices, so this is what stops a second one starting on top of the first.
+  const [busyBulk, setBusyBulk] = useState(false);
   // Narrows the new-jobs list. Client-side on purpose: the whole list is
   // already here, so filtering it is instant and a request per keystroke would
   // be slower and worse.
   const [filter, setFilter] = useState("");
-  // The job waiting on a reason before it can be skipped. A skip retires the
+  // The jobs waiting on a reason before they can be skipped. A skip retires the
   // posting from this profile for good and never comes back in a later cycle,
-  // so it is the one status change that asks a question first.
-  const [skipping, setSkipping] = useState(null);   // { id, title, company }
+  // so it is the one status change that asks a question first — and that is as
+  // true of two hundred at once as it is of one, which is why this holds a list
+  // and the same dialog serves both.
+  const [skipping, setSkipping] = useState(null);   // { ids, title, company }
   const [skipReason, setSkipReason] = useState("");
   // Skip it for every profile this person runs. Off each time on purpose:
   // it is a decision about this job, not a setting, and a sticky checkbox
@@ -115,6 +130,14 @@ export default function BdHome({ pane = null, onPaneSeen }) {
   }, [batchId]);
 
   useEffect(() => { loadSheets(); }, [loadSheets]);
+
+  useEffect(() => {
+    api.settings().then(setSwitches).catch(() => {});
+  }, []);
+
+  // A selection belongs to one profile's list in one cycle. Carrying it across
+  // either would mean a press landing on rows nobody looked at.
+  useEffect(() => { setPicked(new Set()); }, [profileId, batchId, tab]);
 
   // Somebody else may put an interview in this diary at any moment — the
   // developer themselves, or a colleague who took the call. The badge is the
@@ -203,7 +226,7 @@ export default function BdHome({ pane = null, onPaneSeen }) {
     if (status === "skipped") {
       setSkipReason("");
       setSkipEverywhere(false);
-      setSkipping({ id: job.id, title: job.title, company: job.company });
+      setSkipping({ ids: [job.id], title: job.title, company: job.company });
       return;
     }
     mark(job.id, status);
@@ -215,7 +238,59 @@ export default function BdHome({ pane = null, onPaneSeen }) {
     const target = skipping;
     const everywhere = skipEverywhere;
     setSkipping(null);
-    await mark(target.id, "skipped", reason, everywhere);
+    if (target.ids.length === 1) {
+      await mark(target.ids[0], "skipped", reason, everywhere);
+      return;
+    }
+    await markMany(target.ids, "skipped", reason, everywhere);
+  };
+
+  /* ── One decision over a whole selection ──────────────────────────────── */
+
+  const toggleOne = (id) => setPicked((now) => {
+    const next = new Set(now);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  /** Marking the lot.
+   *
+   * Sent in slices because the server caps one press at 500 rows, and pressed
+   * through to the end rather than stopping at the first slice — a selection of
+   * six hundred that half applied would be worse than one that failed outright,
+   * because nobody could tell which half.
+   */
+  const markMany = async (ids, status, reason = "", everyProfile = false) => {
+    if (!ids.length) return;
+    setBusyBulk(true);
+    setNote(null);
+    try {
+      let updated = 0;
+      let elsewhere = 0;
+      for (let at = 0; at < ids.length; at += 200) {
+        const saved = await api.setStatusMany(ids.slice(at, at + 200), status,
+                                              reason, everyProfile);
+        updated += saved.updated;
+        elsewhere += saved.also_skipped || 0;
+      }
+      setPicked(new Set());
+      const what = status === "applied" ? "moved to All jobs" : status === "skipped"
+        ? `skipped — gone from ${profile?.name} for good` : "put back on the list";
+      setNote({
+        text: `${updated} job${updated === 1 ? "" : "s"} ${what}.`
+            + (elsewhere ? ` Also skipped on ${elsewhere} row${elsewhere === 1 ? "" : "s"} `
+                         + "across your other profiles." : "")
+            + (updated < ids.length
+                ? ` ${ids.length - updated} were already off this list — the lists rebuild `
+                  + "while you work."
+                : ""),
+      });
+    } catch (err) {
+      setNote({ bad: true, text: err.message });
+    } finally {
+      setBusyBulk(false);
+      loadSheets();
+    }
   };
 
   const headers = upload?.headers || [];
@@ -250,6 +325,15 @@ export default function BdHome({ pane = null, onPaneSeen }) {
         .some((field) => (field || "").toLowerCase().includes(needle)))
     : orderedSheet;
 
+  // "All" means what is on screen, never what is behind the filter. Somebody
+  // who has narrowed a list to one client and pressed select-all has said
+  // something about that client; quietly including the four hundred rows they
+  // filtered out would be the opposite of what they asked for.
+  const selectable = visible.map((job) => job.id);
+  const chosen = selectable.filter((id) => picked.has(id));
+  const allPicked = selectable.length > 0 && chosen.length === selectable.length;
+  const canBulk = !!switches.bulk_actions_enabled;
+
   if (!profiles.length) {
     return (
       <div className="stack">
@@ -268,15 +352,26 @@ export default function BdHome({ pane = null, onPaneSeen }) {
         <div className="card pad stack" ref={skipBox} role="alertdialog" aria-modal="true"
              style={{ gap: 10, borderLeft: "3px solid var(--brick)" }}>
           <div>
-            <b style={{ fontFamily: "var(--display)" }}>Why are you skipping this one?</b>
+            <b style={{ fontFamily: "var(--display)" }}>
+              {skipping.ids.length > 1
+                ? `Why are you skipping these ${skipping.ids.length}?`
+                : "Why are you skipping this one?"}
+            </b>
             <p className="muted" style={{ marginTop: 3 }}>
-              <b>{skipping.title || "This job"}</b>
-              {skipping.company ? <> at <b>{skipping.company}</b></> : null}.
+              {skipping.ids.length > 1 ? (
+                <>The same reason goes on all <b>{skipping.ids.length}</b> of them.</>
+              ) : (
+                <>
+                  <b>{skipping.title || "This job"}</b>
+                  {skipping.company ? <> at <b>{skipping.company}</b></> : null}.
+                </>
+              )}
             </p>
             <p className="hint" style={{ marginTop: 6, maxWidth: 620 }}>
-              Skipping retires it from {profile?.name} for good — it will not come
-              back in a later cycle. Your manager reads these to see whether the
-              searches feeding this profile are landing, so a few words is enough:
+              Skipping retires {skipping.ids.length > 1 ? "them" : "it"} from{" "}
+              {profile?.name} for good — {skipping.ids.length > 1 ? "they" : "it"} will
+              not come back in a later cycle. Your manager reads these to see whether
+              the searches feeding this profile are landing, so a few words is enough:
               wrong seniority, on-site only, rate too low, client already approached.
             </p>
           </div>
@@ -292,10 +387,14 @@ export default function BdHome({ pane = null, onPaneSeen }) {
               <input type="checkbox" checked={skipEverywhere} style={{ marginTop: 3 }}
                      onChange={(e) => setSkipEverywhere(e.target.checked)} />
               <span>
-                <b>Skip it for all {profiles.length} profiles I run</b>
+                <b>
+                  Skip {skipping.ids.length > 1 ? "them" : "it"} for all{" "}
+                  {profiles.length} profiles I run
+                </b>
                 <p className="hint" style={{ marginTop: 2, maxWidth: 620 }}>
-                  Leave this off when the job is simply wrong for{" "}
-                  <b>{profile?.name}</b> — it may suit one of your other names.
+                  Leave this off when the {skipping.ids.length > 1 ? "jobs are" : "job is"}{" "}
+                  simply wrong for <b>{profile?.name}</b> — {skipping.ids.length > 1
+                    ? "they may suit" : "it may suit"} one of your other names.
                   Tick it when the reason is about the job itself: the rate, on-site
                   only, a client you are already working. Otherwise the same posting
                   comes round again under your other name next week.
@@ -306,11 +405,17 @@ export default function BdHome({ pane = null, onPaneSeen }) {
 
           <div className="row" style={{ gap: 10 }}>
             <button onClick={confirmSkip} disabled={!skipReason.trim()}>
-              {skipEverywhere && profiles.length > 1
-                ? `Skip it for all ${profiles.length}`
-                : "Skip it"}
+              {skipping.ids.length > 1
+                ? skipEverywhere && profiles.length > 1
+                  ? `Skip all ${skipping.ids.length}, on all ${profiles.length} profiles`
+                  : `Skip all ${skipping.ids.length}`
+                : skipEverywhere && profiles.length > 1
+                  ? `Skip it for all ${profiles.length}`
+                  : "Skip it"}
             </button>
-            <button className="ghost" onClick={() => setSkipping(null)}>Keep it on the list</button>
+            <button className="ghost" onClick={() => setSkipping(null)}>
+              {skipping.ids.length > 1 ? "Keep them on the list" : "Keep it on the list"}
+            </button>
           </div>
         </div>
       )}
@@ -493,27 +598,45 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                   <h2>Own jobs — what {profile?.name} found</h2>
               </div>
 
-              {batch.status !== "open" ? (
+              <div className="row" style={{ gap: 8 }}>
+                <button className={how === "type" ? "" : "ghost"} onClick={() => setHow("type")}>
+                  Add manually
+                </button>
+                <button className={how === "upload" ? "" : "ghost"} onClick={() => setHow("upload")}>
+                  Upload a sheet
+                </button>
+                {/* The third way in, and the only one that is not about this
+                    week. A team that has been applying for months out of a
+                    spreadsheet has nothing here to show for it, so the app
+                    keeps handing them postings they worked in June. */}
+                <button className={how === "history" ? "" : "ghost"} onClick={() => setHow("history")}>
+                  Import past work
+                </button>
+                <span className="muted">
+                  {how === "type"
+                    ? "Add jobs one row at a time as you apply."
+                    : how === "upload"
+                      ? "Already keep a spreadsheet? Drop the whole thing in."
+                      : "Months of applying done before this app, filed as your record."}
+                </span>
+              </div>
+
+              {/* Past work is not this cycle's sheet, so a closed cycle does not
+                  stop it. The other two are exactly this cycle's sheet, and do. */}
+              {how === "history" ? (
+                <ImportHistory
+                  profileId={profileId}
+                  profileName={profile?.name}
+                  onWrote={loadSheets}
+                />
+              ) : batch.status !== "open" ? (
                 <div className="notice">
                   This cycle is closed — your manager has already built the lists. Anything
-                  new goes into the next one.
+                  new goes into the next one. <b>Import past work</b> still works: it is
+                  your record, not this cycle's sheet.
                 </div>
               ) : (
                 <>
-                  <div className="row" style={{ gap: 8 }}>
-                    <button className={how === "type" ? "" : "ghost"} onClick={() => setHow("type")}>
-                      Add manually
-                    </button>
-                    <button className={how === "upload" ? "" : "ghost"} onClick={() => setHow("upload")}>
-                      Upload a sheet
-                    </button>
-                    <span className="muted">
-                      {how === "type"
-                        ? "Add jobs one row at a time as you apply."
-                        : "Already keep a spreadsheet? Drop the whole thing in."}
-                    </span>
-                  </div>
-
                   {how === "type" && (
                     <EntryTable
                       batchId={batchId}
@@ -656,6 +779,53 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                     </div>
                   </div>
 
+                  {/* Select all, and the two things worth doing to a whole
+                      selection. Absent — not merely disabled — when the manager
+                      has turned it off, because a button that exists and always
+                      refuses teaches people to distrust the screen. The server
+                      refuses it too; this is the courtesy, not the control. */}
+                  {canBulk && visible.length > 0 && (
+                    <div className="card pad row" style={{ gap: 12, flexWrap: "wrap",
+                                                           alignItems: "center" }}>
+                      <label className="row" style={{ gap: 8 }}>
+                        <input type="checkbox" checked={allPicked}
+                               ref={(box) => {
+                                 // Some of them, but not all: the third state a
+                                 // checkbox has and the only honest answer here.
+                                 if (box) box.indeterminate = chosen.length > 0 && !allPicked;
+                               }}
+                               onChange={() => setPicked(allPicked
+                                 ? new Set()
+                                 : new Set(selectable))} />
+                        <b>
+                          {allPicked ? "Clear the selection" : `Select all ${selectable.length}`}
+                          {needle && !allPicked ? " shown" : ""}
+                        </b>
+                      </label>
+
+                      <span className="muted" style={{ flex: 1, minWidth: 120 }}>
+                        {chosen.length
+                          ? `${chosen.length} selected`
+                          : "Tick rows, or take the lot in one press."}
+                      </span>
+
+                      <div className="row" style={{ gap: 8 }}>
+                        <button disabled={!chosen.length || busyBulk}
+                                onClick={() => markMany(chosen, "applied")}>
+                          {busyBulk ? "Working…" : `Mark ${chosen.length || ""} applied`}
+                        </button>
+                        <button className="ghost" disabled={!chosen.length || busyBulk}
+                                onClick={() => {
+                                  setSkipReason("");
+                                  setSkipEverywhere(false);
+                                  setSkipping({ ids: chosen, title: "", company: "" });
+                                }}>
+                          Skip {chosen.length || ""}…
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {needle && visible.length === 0 ? (
                     <div className="card pad muted">
                       Nothing on this list matches “{filter}”. Try a colleague's name, a client, or a platform.
@@ -665,6 +835,20 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                     <table>
                       <thead>
                         <tr>
+                          {canBulk && (
+                            <th style={{ width: 34 }}>
+                              <input type="checkbox" checked={allPicked}
+                                     aria-label={allPicked
+                                       ? "Clear the selection"
+                                       : `Select all ${selectable.length} jobs shown`}
+                                     ref={(box) => {
+                                       if (box) box.indeterminate = chosen.length > 0 && !allPicked;
+                                     }}
+                                     onChange={() => setPicked(allPicked
+                                       ? new Set()
+                                       : new Set(selectable))} />
+                            </th>
+                          )}
                           <th>Job</th><th>Company</th><th>Found by</th><th>Platform</th><th>Found on</th>
                           <th style={{ minWidth: 220 }}>Link</th><th>Status</th>
                         </tr>
@@ -672,6 +856,13 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                       <tbody>
                         {visible.map((job) => (
                           <tr key={job.id}>
+                            {canBulk && (
+                              <td data-label="">
+                                <input type="checkbox" checked={picked.has(job.id)}
+                                       aria-label={`Select ${job.title || "this job"}`}
+                                       onChange={() => toggleOne(job.id)} />
+                              </td>
+                            )}
                             {/* The row's subject: on a phone this is the
                                 card's heading rather than another labelled
                                 field, which is why it carries no label. */}

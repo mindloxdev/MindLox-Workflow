@@ -58,6 +58,10 @@ export default function AdminHome() {
   // read would wipe a half-typed cap out from under whoever is typing it.
   const [settings, setSettings] = useState(null);
   const [figures, setFigures] = useState(null);
+  // The workspace switches, which belong to no cycle. Separate state from
+  // `settings` above, which is this cycle's cap and mode: these outlive every
+  // cycle and are saved the moment they are pressed rather than on a button.
+  const [switches, setSwitches] = useState(null);
   // Which profile's skips are open underneath the figures. One at a time: the
   // reasons are read against a profile, and two tables open at once is a
   // screenful of somebody else's rows between you and the row you pressed.
@@ -74,6 +78,21 @@ export default function AdminHome() {
     }, 30000);
     return () => clearInterval(tick);
   }, [current]);
+
+  useEffect(() => {
+    api.settings().then(setSwitches).catch(() => {});
+  }, []);
+
+  const flip = async (key, value) => {
+    const was = switches;
+    setSwitches({ ...switches, [key]: value });      // it reads as instant
+    try {
+      setSwitches(await api.saveSettings({ [key]: value }));
+    } catch (err) {
+      setSwitches(was);                              // it did not take
+      setNote({ bad: true, text: err.message });
+    }
+  };
 
   const refresh = useCallback(async (selectId) => {
     const rows = await api.listBatches();
@@ -276,6 +295,47 @@ export default function AdminHome() {
       </div>
 
       {note && <div className={note.bad ? "notice" : "notice ok"}>{note.text}</div>}
+
+      {/* Switches that belong to the workspace rather than to any one cycle,
+          so they sit above the cycle that happens to be open. Both are about
+          what a BD's screen offers, and both are held on the server: turning
+          one off is a rule the API keeps, not a button the browser hides. */}
+      {switches && (
+        <section className="card pad stack" style={{ gap: 12 }}>
+          <h2>What your team's screens offer</h2>
+
+          <label className="row" style={{ gap: 10, alignItems: "flex-start" }}>
+            <input type="checkbox" style={{ marginTop: 3 }}
+                   checked={!!switches.bulk_actions_enabled}
+                   onChange={(e) => flip("bulk_actions_enabled", e.target.checked)} />
+            <span>
+              <b>Let a BD select a whole list and mark it in one press</b>
+              <p className="hint" style={{ marginTop: 2, maxWidth: 680 }}>
+                Puts <b>Select all</b> on others&apos; jobs, with one press to mark
+                the selection applied or skipped. A skip still has to say why, and
+                the one reason goes on every row. Turn it off for a team you want
+                reading each posting before it is turned down — nothing already
+                marked changes, and the server refuses the press as well as the
+                screen hiding it.
+              </p>
+            </span>
+          </label>
+
+          <label className="row" style={{ gap: 10, alignItems: "flex-start" }}>
+            <input type="checkbox" style={{ marginTop: 3 }}
+                   checked={!!switches.team_board_visible}
+                   onChange={(e) => flip("team_board_visible", e.target.checked)} />
+            <span>
+              <b>Let a BD see the team board</b>
+              <p className="hint" style={{ marginTop: 2, maxWidth: 680 }}>
+                Every profile&apos;s progress side by side. Off by default, because a
+                board that appears without anybody deciding to show it is a
+                performance ranking nobody agreed to.
+              </p>
+            </span>
+          </label>
+        </section>
+      )}
 
       <section className="card pad">
         <h2>Start a new cycle</h2>

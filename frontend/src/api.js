@@ -206,6 +206,35 @@ export const api = {
   settings: () => request("/settings"),
   saveSettings: (payload) => request("/settings", { method: "PATCH", body: payload }),
 
+  // ── Back-loading the months of work that happened before this app ──────
+  //
+  // Two steps, because the columns have to be right before three thousand rows
+  // are filed against a profile. `startImport` reads the file and says what it
+  // found and writes nothing; `runImport` writes a chunk at a time and is
+  // called until `done` comes back true.
+  //
+  // Stopping halfway costs nothing. The import remembers how far it got, so
+  // `runImport` on the same id carries on from the row after the last one
+  // written — and handing in the same file again is the repair for rows that
+  // never landed at all: everything already on record is recognised and left
+  // alone, and only what is missing is added.
+  imports: (profileId = null) =>
+    request(`/history/imports${profileId ? `?profile_id=${profileId}` : ""}`),
+  startImport: (profileId, file, shareWithTeam = true) => {
+    const form = new FormData();
+    form.append("profile_id", profileId);
+    form.append("file", file);
+    form.append("share_with_team", shareWithTeam ? "true" : "false");
+    return request("/history/imports", { method: "POST", form });
+  },
+  // Both fields optional. The columns may only move before the first row is
+  // written; sharing may be changed at any time, by the BD or their manager.
+  updateImport: (id, payload) =>
+    request(`/history/imports/${id}`, { method: "PATCH", body: payload }),
+  runImport: (id) => request(`/history/imports/${id}/run`, { method: "POST" }),
+  // Forgets the sheet. What it filed stays filed — those are applications now.
+  deleteImport: (id) => request(`/history/imports/${id}`, { method: "DELETE" }),
+
   // A cycle is optional everywhere below: leave it off and the server opens on
   // the newest cycle still running.
   dashboard: (batchId, dateFrom, dateTo) => request(`/dashboard/me${query(batchId, dateFrom, dateTo)}`),
@@ -308,6 +337,18 @@ export const api = {
   setStatus: (assignmentId, status, reason = "", everyProfile = false) =>
     request(`/assignments/${assignmentId}`,
             { method: "PATCH", body: { status, reason, every_profile: everyProfile } }),
+
+  // The same decision over a whole selection. Same rules — a skip still has to
+  // say why, and the one reason is written onto every row, which is the honest
+  // shape of what somebody selecting two hundred jobs actually has to say.
+  //
+  // Refused by the server when the manager has turned `bulk_actions_enabled`
+  // off, so the button being hidden is a courtesy and not the control. The
+  // server caps one press at 500 rows; `markMany` below sends a long selection
+  // as several presses.
+  setStatusMany: (ids, status, reason = "", everyProfile = false) =>
+    request("/assignments/bulk",
+            { method: "POST", body: { ids, status, reason, every_profile: everyProfile } }),
 
   // Has this posting been applied to before? Asked as the job link is typed,
   // before the row is saved. Matched on the fingerprint, so the same job pasted

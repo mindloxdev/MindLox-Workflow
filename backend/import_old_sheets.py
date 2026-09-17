@@ -51,7 +51,7 @@ import openpyxl
 from sqlalchemy import insert, select
 
 from app.main import SessionLocal
-from app import ingest, matching
+from app import history, ingest, matching
 from app.models import Application, Job, Profile, User
 
 # Columns 0-4 are the same five in every tab, whatever the headings call them
@@ -93,62 +93,13 @@ SHEETS = {
 SKIP_SHEETS = {"Sheet10"}
 
 
-def clean_platform(value: object) -> str:
-    """"Indeed." and "Direct websites." are the same portal typed twice."""
-    text = str(value or "").strip().rstrip(".;").strip()
-    if not text:
-        return ""
-    known = {"indeed": "Indeed", "ziprecruiter": "ZipRecruiter", "linkdin": "LinkedIn",
-             "linkedin": "LinkedIn", "monster": "Monster", "glassdoor": "Glassdoor",
-             "hiring cafe": "Hiring Cafe", "hiringcafe": "Hiring Cafe",
-             "jobright": "Jobright.ai", "jobright ai": "Jobright.ai",
-             "jobright.ai": "Jobright.ai", "direct website": "Direct website",
-             "direct websites": "Direct website", "dice": "Dice",
-             "simplyhired": "SimplyHired", "careerbuilder": "CareerBuilder"}
-    return known.get(text.lower(), text[:120])
-
-
-def parse_date(value: object, today: dt.date | None = None) -> str:
-    """The applied-on stamp as YYYY-MM-DD, or "" when the cell says nothing.
-
-    Two formats are in the files: real Excel dates, which openpyxl hands back
-    as datetimes, and text like "07/22/2026", which it does not. The text is
-    read US-style, month first, because that is what the tabs using both agree
-    on.
-
-    THE SWAPPED ONES. Excel decided for itself how to read what the team typed,
-    and on 842 rows it read a day-first date month-first: "10/07/2026" was the
-    10th of July and got stored as the 7th of October. They are recognisable
-    without guessing, because they land in the future and these are sheets of
-    work already done — a job cannot have been applied for next month. Every
-    single one becomes a real past date when the two numbers change places, and
-    the rows around it in the same tab are that same July, so the swap is a
-    correction rather than a coin toss. A future date that does not survive the
-    swap is left alone; there is nothing here to base a repair on.
-
-    The stamp is only ever a label. Identity is the fingerprint, so a date read
-    wrongly misstates when a job was applied for, never whether it was.
-    """
-    today = today or dt.date.today()
-    if isinstance(value, (dt.datetime, dt.date)):
-        day = value.date() if isinstance(value, dt.datetime) else value
-        if day > today:
-            try:
-                swapped = day.replace(month=day.day, day=day.month)
-            except ValueError:
-                swapped = day                      # e.g. the 22nd: no 22nd month
-            if swapped <= today:
-                day = swapped
-        return day.strftime("%Y-%m-%d")
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    for fmt in ("%m/%d/%Y", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%m/%d/%y", "%d-%m-%Y"):
-        try:
-            return dt.datetime.strptime(text, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    return ""
+# The date reader and the portal tidier both moved to app/history.py when the
+# same job became something a BD does for themselves from their own screen.
+# There is one copy of each and this is not it — a workbook read from a terminal
+# and a sheet dropped on a browser have to file identical stamps, or "found on"
+# orders two records of the same posting wrongly for as long as both are held.
+clean_platform = history.clean_platform
+parse_date = history.read_date
 
 
 def read_sheet(worksheet) -> tuple[list[dict], Counter]:

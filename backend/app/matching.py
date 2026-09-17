@@ -419,7 +419,8 @@ def cover(
 
     pool entries: {"job_id": int, "company_key": str, "blocked_for": set[int]}
     A pool entry may also include `headlines`, limiting it to profiles with
-    one of the same headlines as the profiles that applied.
+    one of the same headlines as the profiles that applied, and `defer`, which
+    holds it back until everything not deferred has been placed.
     `blocked_for` is who must NOT receive it — the profiles that already applied
     to it, plus the ones that looked at it and skipped it.
 
@@ -452,11 +453,17 @@ def cover(
         if not takers:
             saturated += 1
             continue
-        candidates.append((len(takers), job, takers))
+        candidates.append((job.get("defer", 0), len(takers), job, takers))
 
-    candidates.sort(key=lambda item: item[0])
+    # Deferred jobs last, then scarcest first within each group. `defer` is how
+    # a caller says "this one is real, and worth having, but it is not what this
+    # cycle is about" — today it marks a posting back-loaded out of somebody's
+    # old spreadsheets. Three months of those would otherwise spend the whole
+    # cap before a BD's list reached anything found this week, and the two are
+    # not worth the same: a posting from June may well be filled.
+    candidates.sort(key=lambda item: (item[0], item[1]))
 
-    for _, job, takers in candidates:
+    for _, _, job, takers in candidates:
         client = job.get("company_key") or ""
         placed = 0
         blocked_by_client = False
@@ -504,7 +511,8 @@ def partition(
 
       1. Jobs with the fewest eligible holders are placed first. A job only one
          profile can take must be given to it before its quota fills up with
-         jobs anyone could have taken.
+         jobs anyone could have taken. `defer` outranks it: a back-loaded
+         posting waits for everything this cycle gathered, however scarce.
       2. Among eligible holders, the one holding the fewest jobs so far wins.
          Without this you get one sheet with 300 rows and another with four.
     """
@@ -523,11 +531,12 @@ def partition(
         if not eligible:
             saturated += 1
             continue
-        candidates.append((len(eligible), job, eligible))
+        candidates.append((job.get("defer", 0), len(eligible), job, eligible))
 
-    candidates.sort(key=lambda item: item[0])
+    # Deferred last, scarcest first inside each group — see cover().
+    candidates.sort(key=lambda item: (item[0], item[1]))
 
-    for _, job, eligible in candidates:
+    for _, _, job, eligible in candidates:
         client = job.get("company_key") or ""
         ranked = sorted(eligible, key=lambda uid: (len(assigned[uid]), uid))
         chosen = None
