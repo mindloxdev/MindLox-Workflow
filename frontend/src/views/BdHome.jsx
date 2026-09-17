@@ -67,6 +67,9 @@ export default function BdHome({ pane = null, onPaneSeen }) {
   // would quietly retire postings from a market nobody meant to close.
   const [skipEverywhere, setSkipEverywhere] = useState(false);
   const fileInput = useRef(null);
+  // The file that was just read, kept so a different tab of the same workbook
+  // can be asked for without making the person find the file again.
+  const lastFile = useRef(null);
   // The skip dialog asks a question that retires a job for good, so the
   // keyboard stays inside it until it is answered or dismissed.
   const skipBox = useRef(null);
@@ -163,15 +166,18 @@ export default function BdHome({ pane = null, onPaneSeen }) {
     return () => clearInterval(tick);
   }, [batchId, loadSheets]);
 
-  const send = async (file) => {
+  const send = async (file, sheet = "") => {
     if (!file || !batchId || !profileId) return;
+    lastFile.current = file;
     setBusy(true);
     setNote(null);
     try {
-      const data = await api.upload(batchId, profileId, file);
+      const data = await api.upload(batchId, profileId, file, sheet);
       setUpload(data);
       setNote({ text: `${data.usable_count ?? data.row_count} of ${data.row_count} rows `
-                    + `are usable for ${data.profile}. Check the columns below.` });
+                    + `are usable for ${data.profile}`
+                    + (data.sheet ? `, read from the “${data.sheet}” tab` : "")
+                    + ". Check the columns below." });
     } catch (err) {
       setNote({ bad: true, text: err.message });
     } finally {
@@ -669,6 +675,26 @@ export default function BdHome({ pane = null, onPaneSeen }) {
                       </div>
                       <input ref={fileInput} type="file" accept=".xlsx,.xls,.csv,.tsv" hidden
                              onChange={(e) => send(e.target.files[0])} />
+                    </div>
+                  )}
+
+                  {/* Which tab was read. An old sheet is nearly always one
+                      workbook with a tab per person, and reading the wrong one
+                      files a colleague's work under this profile — so the guess
+                      is said out loud and the others are one click away. */}
+                  {how === "upload" && upload && (upload.sheets?.length > 1) && (
+                    <div className="notice">
+                      Read from the <b>{upload.sheet}</b> tab of {upload.sheets.length} in
+                      that workbook.
+                      <label style={{ display: "block", marginTop: 6 }}>
+                        Wrong one?&nbsp;
+                        <select value={(upload.sheet || "").trim()} disabled={busy}
+                                onChange={(e) => send(lastFile.current, e.target.value)}>
+                          {upload.sheets.map((name) => (
+                            <option key={name} value={name.trim()}>{name.trim()}</option>
+                          ))}
+                        </select>
+                      </label>
                     </div>
                   )}
 

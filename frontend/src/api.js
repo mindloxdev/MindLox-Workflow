@@ -188,10 +188,14 @@ export const api = {
   // What each profile did inside the window the clock measured. Manager only.
   timerReport: (id) => request(`/batches/${id}/timer-report`),
 
-  upload: (batchId, profileId, file) => {
+  // `sheet` names a tab of a workbook. Left out, the server reads whichever tab
+  // looks most like a job sheet and says which one it took, so the person can
+  // send the same file back naming a different one.
+  upload: (batchId, profileId, file, sheet = "") => {
     const form = new FormData();
     form.append("profile_id", profileId);
     form.append("file", file);
+    if (sheet) form.append("sheet", sheet);
     return request(`/batches/${batchId}/uploads`, { method: "POST", form });
   },
   setMapping: (uploadId, mapping) =>
@@ -220,11 +224,12 @@ export const api = {
   // alone, and only what is missing is added.
   imports: (profileId = null) =>
     request(`/history/imports${profileId ? `?profile_id=${profileId}` : ""}`),
-  startImport: (profileId, file, shareWithTeam = true) => {
+  startImport: (profileId, file, shareWithTeam = true, sheet = "") => {
     const form = new FormData();
     form.append("profile_id", profileId);
     form.append("file", file);
     form.append("share_with_team", shareWithTeam ? "true" : "false");
+    if (sheet) form.append("sheet", sheet);
     return request("/history/imports", { method: "POST", form });
   },
   // Both fields optional. The columns may only move before the first row is

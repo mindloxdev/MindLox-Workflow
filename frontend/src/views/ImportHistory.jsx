@@ -73,6 +73,9 @@ export default function ImportHistory({ profileId, profileName, onWrote }) {
   // than aborting a request in flight, so stopping never costs the rows that
   // were being written when it was pressed.
   const stop = useRef(false);
+  // The file just read, kept so another tab of the same workbook can be asked
+  // for without making the person find the file again.
+  const lastFile = useRef(null);
 
   const reload = useCallback(() => {
     if (!profileId) return;
@@ -82,13 +85,14 @@ export default function ImportHistory({ profileId, profileName, onWrote }) {
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => { setCurrent(null); setRun(null); setNote(null); }, [profileId]);
 
-  const read = async (file) => {
+  const read = async (file, sheet = "") => {
     if (!file || !profileId) return;
+    lastFile.current = file;
     setBusy(true);
     setNote(null);
     setRun(null);
     try {
-      const data = await api.startImport(profileId, file, share);
+      const data = await api.startImport(profileId, file, share, sheet);
       setCurrent(data);
       if (!data.batch_open) {
         setNote({ text: "No cycle is open, so these will go into "
@@ -265,6 +269,27 @@ export default function ImportHistory({ profileId, profileName, onWrote }) {
               </button>
             )}
           </div>
+
+          {/* Which tab was read. An old sheet is nearly always one workbook
+              with a tab per person, and reading the wrong one files a
+              colleague's months of work under this profile — so the guess is
+              said out loud and the others are one click away. Only before the
+              first row is written: after that the choice is what is on record. */}
+          {!started && current.sheets?.length > 1 && (
+            <div className="notice">
+              Read from the <b>{current.sheet}</b> tab of {current.sheets.length} in
+              that workbook.
+              <label style={{ display: "block", marginTop: 6 }}>
+                Wrong one?&nbsp;
+                <select value={(current.sheet || "").trim()} disabled={busy}
+                        onChange={(e) => read(lastFile.current, e.target.value)}>
+                  {current.sheets.map((name) => (
+                    <option key={name} value={name.trim()}>{name.trim()}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
 
           {/* The columns. Only movable before the first row is written: after
               that the mapping is what the rows already on record were read

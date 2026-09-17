@@ -1195,6 +1195,7 @@ def update_batch(batch_id: int, body: BatchPatch, db: Session = Depends(get_db),
 
 @app.post("/api/batches/{batch_id}/uploads", status_code=201)
 def upload_sheet(batch_id: int, profile_id: int = Form(...), file: UploadFile = File(...),
+                 sheet: str = Form(""),
                  db: Session = Depends(get_db), user: User = Depends(current_user)):
     batch = db.get(Batch, batch_id)
     if not batch:
@@ -1210,13 +1211,19 @@ def upload_sheet(batch_id: int, profile_id: int = Form(...), file: UploadFile = 
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, too_big)
     try:
-        frame = ingest.read_table(raw, file.filename or "sheet.csv")
+        frame = ingest.read_table(raw, file.filename or "sheet.csv", sheet=sheet)
     except Exception as exc:
         raise HTTPException(400, f"Could not read that file: {exc}")
 
     headers = list(frame.columns)
     rows = frame.to_dict(orient="records")
     mapping = ingest.auto_map(headers)
+    # Which tab of the workbook this came from. A workbook with a tab per person
+    # is this team's normal shape, so the sheet that was read has to be said out
+    # loud and the others offered — guessing silently is how somebody ends up
+    # handing in a colleague's work under their own profile.
+    tab = frame.attrs.get("sheet") or ""
+    tabs = list(frame.attrs.get("sheets") or [])
 
     # One sheet per profile per batch — a re-upload replaces the old one.
     existing = db.scalar(select(Upload).where(Upload.batch_id == batch_id,
@@ -1225,8 +1232,9 @@ def upload_sheet(batch_id: int, profile_id: int = Form(...), file: UploadFile = 
         db.delete(existing)
         db.flush()
 
+    stored = f"{file.filename} — {tab}" if tab else (file.filename or "")
     upload = Upload(batch_id=batch_id, profile_id=profile.id, user_id=user.id,
-                    filename=file.filename, row_count=len(rows), headers=headers,
+                    filename=stored[:255], row_count=len(rows), headers=headers,
                     mapping=mapping, rows=rows,
                     usable_count=len(ingest.apply_mapping(rows, mapping)))
     db.add(upload)
@@ -1235,7 +1243,7 @@ def upload_sheet(batch_id: int, profile_id: int = Form(...), file: UploadFile = 
     return {"id": upload.id, "profile_id": profile.id, "profile": profile.name,
             "filename": upload.filename, "row_count": upload.row_count,
             "usable_count": upload.usable_count,
-            "headers": headers, "mapping": mapping,
+            "headers": headers, "mapping": mapping, "sheet": tab, "sheets": tabs,
             "preview": rows[:5], "fields": ingest.FIELDS}
 
 
@@ -1527,7 +1535,7 @@ def list_imports(profile_id: Optional[int] = None, db: Session = Depends(get_db)
 
 @app.post("/api/history/imports", status_code=201)
 def start_import(profile_id: int = Form(...), file: UploadFile = File(...),
-                 share_with_team: bool = Form(True),
+                 share_with_team: bool = Form(True), sheet: str = Form(""),
                  db: Session = Depends(get_db), user: User = Depends(current_user)):
     """Read an old sheet and work out what is in it. Nothing is written yet.
 
@@ -1549,7 +1557,7 @@ def start_import(profile_id: int = Form(...), file: UploadFile = File(...),
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, too_big)
     try:
-        frame = ingest.read_table(raw, file.filename or "history.csv")
+        frame = ingest.read_table(raw, file.filename or "history.csv", sheet=sheet)
     except Exception as exc:
         raise HTTPException(400, f"Could not read that file: {exc}")
 
@@ -1557,6 +1565,11 @@ def start_import(profile_id: int = Form(...), file: UploadFile = File(...),
     rows = frame.to_dict(orient="records")
     mapping = ingest.auto_map(headers)
     prints, usable = history.plan(rows, mapping)
+    # Which tab this came from, and what else the workbook held. An old sheet is
+    # nearly always a workbook with a tab per person, so this is the difference
+    # between importing your own three thousand rows and importing a colleague's.
+    tab = frame.attrs.get("sheet") or ""
+    tabs = list(frame.attrs.get("sheets") or [])
 
     # The cycle these postings may reach, which is whichever one is open. A
     # workspace between cycles can still import — the history is recorded, and
@@ -1569,7 +1582,7 @@ def start_import(profile_id: int = Form(...), file: UploadFile = File(...),
     record = HistoryImport(
         profile_id=profile.id, user_id=user.id,
         batch_id=open_batch.id if open_batch else None,
-        filename=(file.filename or "")[:255],
+        filename=(f"{file.filename} — {tab}" if tab else (file.filename or ""))[:255],
         share_with_team=bool(share_with_team),
         headers=headers, mapping=mapping, rows=rows, prints=prints,
         row_count=len(rows), usable_count=usable, status="ready")
@@ -1577,7 +1590,7 @@ def start_import(profile_id: int = Form(...), file: UploadFile = File(...),
     db.commit()
 
     return {**import_json(record, profile), "preview": rows[:5],
-            "fields": ingest.FIELDS,
+            "fields": ingest.FIELDS, "sheet": tab, "sheets": tabs,
             "batch_open": bool(open_batch),
             "batch_name": open_batch.name if open_batch else ""}
 
