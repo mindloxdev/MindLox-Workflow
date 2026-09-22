@@ -1,0 +1,59 @@
+; Template. deploy/install.sh fills in @APP_DIR@, @APP_USER@, @API_PORT@ and
+; @WORKERS@ and writes the result to /etc/systemd/system/bd-dispatch.service.
+;
+; One process serves the browser app and the API together, which is what
+; WEB_ROOT does (see app/main.py, near the bottom). So there is nothing to
+; proxy between them and no CORS to configure.
+
+[Unit]
+Description=Dispatch
+Documentation=file://@APP_DIR@/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+; app/main.py opens the database while it is being imported, so a Postgres that
+; is not accepting connections yet means the process exits rather than waits.
+; Restart=always covers that -- but systemd's default give-up rule is 5 starts
+; in 10 seconds, and at RestartSec=3 a cold boot can trip it and leave the unit
+; dead until somebody notices. Give it a minute's worth of attempts instead.
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=exec
+User=@APP_USER@
+Group=@APP_USER@
+WorkingDirectory=@APP_DIR@/backend
+
+# The built browser app. Present, so main.py serves it from this same process.
+Environment=WEB_ROOT=@APP_DIR@/frontend/dist
+Environment=PYTHONUNBUFFERED=1
+
+# Bound to localhost on purpose. nginx is the only thing that talks to it, and
+# nginx is the only thing the network can see.
+ExecStart=@APP_DIR@/backend/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port @API_PORT@ \
+    --workers @WORKERS@ \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1
+
+Restart=always
+RestartSec=3
+
+# A long cycle build holds the worker for a while; do not shoot it.
+TimeoutStopSec=60
+KillSignal=SIGINT
+
+# The app writes nothing to disk at runtime -- exports are built in memory and
+# streamed -- so it needs no write access to anything but its own logs.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=@APP_DIR@
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

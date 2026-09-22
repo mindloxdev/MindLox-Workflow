@@ -1,0 +1,11 @@
+; Run by bd-dispatch-backup.timer. Not something you start by hand -- for that,
+; just run deploy/backup.sh.
+
+[Unit]
+Description=Dispatch database dump
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/bd-dispatch/deploy/backup.sh

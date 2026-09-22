@@ -1,0 +1,18 @@
+; A dump every night at 02:00. Install it with:
+;
+;   sudo cp deploy/bd-dispatch-backup.* /etc/systemd/system/
+;   sudo systemctl enable --now bd-dispatch-backup.timer
+;
+; Check it is going to fire:  systemctl list-timers bd-dispatch-backup
+
+[Unit]
+Description=Nightly Dispatch database dump
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+; If the server was off at 02:00, run it as soon as it is on again.
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

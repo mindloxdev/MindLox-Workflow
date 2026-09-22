@@ -1583,6 +1583,20 @@ All of these are restart-only. Back up the file first anyway — it is one `cp`.
 
 ## Deploying
 
+**On your own Linux server, nothing hosted** — the team opens a link to a
+machine in your office, and no data leaves it:
+
+```bash
+sudo bash deploy/install.sh                                  # ~20 minutes
+sudo bash deploy/migrate-from-neon.sh "postgresql://…"       # if you have data hosted now
+```
+
+That installs PostgreSQL, builds the browser app, and sets the whole thing up
+behind nginx as a systemd service that starts on boot. It prints the link to
+hand out when it is done. The full runbook — fixed addresses, backups,
+updates, and what to check when something is wrong — is in
+[`deploy/README.md`](deploy/README.md).
+
 **Docker** (Postgres included):
 
 ```bash

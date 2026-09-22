@@ -1040,23 +1040,54 @@ export function Skills({ value, limit = 8 }) {
   );
 }
 
+/** Copy a value without the clipboard API.
+ *
+ * `navigator.clipboard` only exists in a secure context, which means https or
+ * localhost and nothing else. Served from a machine on the office LAN over
+ * plain http it is simply undefined, and every copy button on every screen
+ * quietly stops working — the worst kind of broken, because nothing says so.
+ *
+ * execCommand("copy") is deprecated and still works in every browser, and it
+ * does not care about the origin. The textarea is put off-screen rather than
+ * hidden: a display:none element cannot be selected, so it would copy nothing.
+ */
+function copyTheOldWay(value) {
+  const field = document.createElement("textarea");
+  field.value = value;
+  field.setAttribute("readonly", "");
+  field.style.position = "fixed";
+  field.style.top = "-1000px";
+  document.body.appendChild(field);
+  try {
+    field.select();
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(field);
+  }
+}
+
 /** Put a value on the clipboard.
  *
- * The clipboard API does not exist on plain http, so a failure is swallowed:
- * the value is on the screen either way, and an error about copying an email
- * address helps nobody.
+ * Says "copied" only when something was actually copied. If both routes fail
+ * the value is still on the screen to be selected by hand, and an error about
+ * copying an email address helps nobody.
  */
 export function CopyButton({ value, label = "copy" }) {
   const [done, setDone] = React.useState(false);
   if (!value) return null;
   const copy = async () => {
+    let ok = false;
     try {
       await navigator.clipboard.writeText(value);
-      setDone(true);
-      setTimeout(() => setDone(false), 1400);
+      ok = true;
     } catch {
-      /* clipboard blocked — nothing useful to say about it */
+      ok = copyTheOldWay(value);       // plain http, or permission refused
     }
+    if (!ok) return;
+    setDone(true);
+    setTimeout(() => setDone(false), 1400);
   };
   return <button className="link" onClick={copy}>{done ? "copied" : label}</button>;
 }
