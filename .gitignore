@@ -5,9 +5,12 @@ venv/
 *.db
 *.bak
 .env
+# Any saved copy, e.g. MindLox-Ai.env, holds real credentials.
+*.env
 sample_sheets/
 node_modules/
 dist/
 .pytest_cache/
 .claude/
 .DS_Store
+

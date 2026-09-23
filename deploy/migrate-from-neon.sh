@@ -2,10 +2,13 @@
 #
 # Copy everything out of Neon and into the PostgreSQL on this machine.
 #
+#     sudo bash deploy/migrate-from-neon.sh MindLox-Ai.env
 #     sudo bash deploy/migrate-from-neon.sh "postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require"
 #
-# The connection string is the one in your old backend/.env on Windows. Quote
-# it -- it contains characters the shell would otherwise eat.
+# Give it either the old .env file (its DATABASE_URL line is used, and nothing
+# else in it is), or the connection string itself, in quotes -- it contains
+# characters the shell would otherwise eat. The file is better: the password
+# stays out of your shell history.
 #
 # Nothing is written to Neon. This only reads. If it goes wrong you still have
 # the hosted copy exactly as it was, and you can run this again.
@@ -34,14 +37,30 @@ SOURCE_URL="${1:-}"
 if [ -z "$SOURCE_URL" ]; then
   cat >&2 <<USAGE
 
-  Give it the Neon connection string, in quotes:
+  Give it the old .env file that points at Neon:
+
+      sudo bash $0 MindLox-Ai.env
+
+  or the connection string itself, in quotes:
 
       sudo bash $0 "postgresql://user:pass@ep-xxx.region.aws.neon.tech/neondb?sslmode=require"
 
-  It is the DATABASE_URL line in your old backend/.env.
-
 USAGE
   exit 1
+fi
+
+# A file: take its DATABASE_URL line. Tolerates quotes, "export", and the
+# Windows line endings a .env copied from the old machine will have.
+if [ -f "$SOURCE_URL" ]; then
+  ENV_SOURCE="$SOURCE_URL"
+  SOURCE_URL="$(tr -d '\r' < "$ENV_SOURCE" \
+    | sed -nE 's/^[[:space:]]*(export[[:space:]]+)?DATABASE_URL[[:space:]]*=[[:space:]]*//p' | tail -1 \
+    | sed -E "s/^['\"]//; s/['\"][[:space:]]*$//")"
+  [ -n "$SOURCE_URL" ] || die "$ENV_SOURCE has no DATABASE_URL line."
+  case "$SOURCE_URL" in
+    sqlite*) die "$ENV_SOURCE points at SQLite, not Neon. Give it the .env that has the Neon string." ;;
+  esac
+  echo "    using DATABASE_URL from $ENV_SOURCE"
 fi
 
 # The app's own URL form is postgresql+psycopg2://, which is SQLAlchemy's
@@ -110,11 +129,20 @@ restart_app() {
 trap restart_app EXIT
 
 say "Restoring into the local database"
-sudo -u postgres psql -q -d "$DB_NAME" -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"
-sudo -u postgres psql -q -d "$DB_NAME" -c "GRANT ALL ON SCHEMA public TO $DB_USER; GRANT ALL ON SCHEMA public TO postgres;"
+sudo -u postgres env PGOPTIONS='-c client_min_messages=warning' \
+  psql -q -d "$DB_NAME" -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"
 
 RESTORE_LOG="$BACKUP_DIR/restore-$STAMP.log"
-if sudo -u postgres psql -v ON_ERROR_STOP=1 -q -d "$DB_NAME" -f "$DUMP" > "$RESTORE_LOG" 2>&1; then
+# The dump is fed on stdin, opened by root: $BACKUP_DIR is root-only (700), so
+# postgres cannot open a path in it itself. Notices are silenced so the log
+# holds only what went wrong.
+#
+# pg_dump --schema=public writes a bare "CREATE SCHEMA public;", which fails on
+# the schema just recreated above. IF NOT EXISTS makes it hold either way,
+# whether or not a given pg_dump version emits that line.
+if sed 's/^CREATE SCHEMA public;$/CREATE SCHEMA IF NOT EXISTS public;/' "$DUMP" \
+   | sudo -u postgres env PGOPTIONS='-c client_min_messages=warning' \
+       psql -v ON_ERROR_STOP=1 -q -d "$DB_NAME" > "$RESTORE_LOG" 2>&1; then
   echo "    restored cleanly"
 else
   warn "The restore reported errors. The log is at $RESTORE_LOG"
@@ -124,7 +152,7 @@ else
   if [ -n "$PRE_DUMP" ]; then
     echo "  The local database was emptied to make room. Put back what was here:" >&2
     echo "      sudo systemctl stop bd-dispatch" >&2
-    echo "      sudo -u postgres pg_restore --clean --if-exists -d $DB_NAME $PRE_DUMP" >&2
+    echo "      sudo cat $PRE_DUMP | sudo -u postgres pg_restore --clean --if-exists -d $DB_NAME" >&2
     echo "      sudo systemctl start bd-dispatch" >&2
   fi
   die "Stopped without importing anything."
@@ -133,6 +161,10 @@ fi
 # Everything arrived owned by postgres. Hand it to the account the app uses.
 say "Handing the tables to $DB_USER"
 sudo -u postgres psql -q -d "$DB_NAME" <<SQL
+-- The schema was recreated, so its grants went with it. Without CREATE here
+-- the app cannot add a table a later version of the code expects.
+ALTER SCHEMA public OWNER TO $DB_USER;
+GRANT ALL ON SCHEMA public TO $DB_USER;
 DO \$\$
 DECLARE r record;
 BEGIN

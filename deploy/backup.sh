@@ -12,7 +12,7 @@
 #
 # Restore one with:
 #     systemctl stop bd-dispatch
-#     sudo -u postgres pg_restore --clean --if-exists -d dispatch FILE.dump
+#     sudo cat FILE.dump | sudo -u postgres pg_restore --clean --if-exists -d dispatch
 #     systemctl start bd-dispatch
 
 set -euo pipefail

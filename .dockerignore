@@ -9,6 +9,7 @@
 **/*.db
 **/*.bak
 **/.env
+**/*.env
 backend/sample_sheets
 dummy_sheets
 start.bat

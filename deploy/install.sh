@@ -29,14 +29,19 @@ PG_VERSION="${PG_VERSION:-17}"
 API_PORT="${API_PORT:-8000}"     # localhost only; nginx is what the network sees
 HTTP_PORT="${HTTP_PORT:-80}"     # what you hand out
 WORKERS="${WORKERS:-2}"
-HOSTNAME_LOCAL="${HOSTNAME_LOCAL:-dispatch}"   # -> http://dispatch.local
-NODE_MAJOR="${NODE_MAJOR:-20}"
+# Renaming the machine is opt-in: it is somebody's server before it is ours.
+#     sudo HOSTNAME_LOCAL=dispatch bash deploy/install.sh   -> http://dispatch.local
+HOSTNAME_LOCAL="${HOSTNAME_LOCAL:-}"
+NODE_MAJOR="${NODE_MAJOR:-22}"
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 say()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m    %s\033[0m\n' "$*"; }
 die()  { printf '\n\033[1;31mx  %s\033[0m\n' "$*" >&2; exit 1; }
+
+# shellcheck source=deploy/lib.sh
+. "$SRC_DIR/deploy/lib.sh"
 
 [ "$(id -u)" -eq 0 ] || die "Run this with sudo."
 command -v apt-get >/dev/null || die "This installer is written for Debian and Ubuntu."
@@ -51,10 +56,16 @@ apt-get install -y -qq curl ca-certificates gnupg lsb-release rsync \
                        python3 python3-venv python3-dev build-essential \
                        nginx ufw avahi-daemon >/dev/null
 
-# PostgreSQL from the PGDG repo rather than the distro. The version matters:
-# pg_dump can read a server older than itself but never a newer one, and Neon
-# runs a recent major. Pinning to $PG_VERSION here keeps the migration working.
-if ! command -v psql >/dev/null || ! psql --version | grep -q " ${PG_VERSION}\."; then
+# The version matters: pg_dump can read a server older than itself but never a
+# newer one, and Neon runs a recent major. So a server that is already here and
+# at least $PG_VERSION is used as it is -- installing a second major beside it
+# would start a second cluster on 5433 while the app points at 5432. Only when
+# there is none, or it is too old, does PGDG get involved.
+INSTALLED_PG="$(pg_lsclusters -h 2>/dev/null | awk '$2 == "main" {print $1}' | sort -n | tail -1)"
+if [ -n "$INSTALLED_PG" ] && [ "$INSTALLED_PG" -ge "$PG_VERSION" ]; then
+  PG_VERSION="$INSTALLED_PG"
+  say "Using the PostgreSQL $PG_VERSION already on this machine"
+else
   say "Installing PostgreSQL $PG_VERSION"
   install -d /usr/share/postgresql-common/pgdg
   curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
@@ -66,11 +77,19 @@ if ! command -v psql >/dev/null || ! psql --version | grep -q " ${PG_VERSION}\."
 fi
 systemctl enable --now "postgresql@${PG_VERSION}-main" >/dev/null 2>&1 || systemctl enable --now postgresql
 
-# Node is needed only to build the browser app. It is not needed to run it.
-if ! command -v node >/dev/null || [ "$(node -v | sed 's/v\([0-9]*\).*/\1/')" -lt 18 ]; then
-  say "Installing Node $NODE_MAJOR"
-  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - >/dev/null
-  apt-get install -y -qq nodejs >/dev/null
+# Node builds the browser app and is not needed to run it. One the owner of
+# this checkout already has -- in their ~/.nvm or on the PATH -- is used as it
+# is (see lib.sh). Only when there is none is the distro's installed.
+if ! find_node_dir >/dev/null; then
+  DISTRO_NODE="$(apt-cache policy nodejs 2>/dev/null | awk '/Candidate:/ {print $2}' | sed 's/^[0-9]*://; s/\..*//')"
+  if [ -n "$DISTRO_NODE" ] && [ "$DISTRO_NODE" -ge "$NODE_MAJOR" ] 2>/dev/null; then
+    say "Installing Node $DISTRO_NODE from the distro"
+    apt-get install -y -qq nodejs npm >/dev/null
+  else
+    say "Installing Node $NODE_MAJOR from NodeSource"
+    curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - >/dev/null
+    apt-get install -y -qq nodejs >/dev/null
+  fi
 fi
 
 # --------------------------------------------------------------------------- #
@@ -86,12 +105,7 @@ fi
 # --------------------------------------------------------------------------- #
 say "Copying the app to $APP_DIR"
 install -d -o "$APP_USER" -g "$APP_USER" "$APP_DIR"
-rsync -a --delete \
-  --exclude '.git' --exclude '.venv' --exclude 'node_modules' \
-  --exclude '__pycache__' --exclude '.pytest_cache' \
-  --exclude 'backend/.env' --exclude 'backend/dispatch.db' \
-  --exclude 'frontend/dist' --exclude '.db-password' \
-  "$SRC_DIR/" "$APP_DIR/"
+rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$SRC_DIR/" "$APP_DIR/"
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 
 # --------------------------------------------------------------------------- #
@@ -128,24 +142,10 @@ if [ -f "$ENV_FILE" ]; then
 else
   say "Writing backend/.env"
   JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
-  cat > "$ENV_FILE" <<ENVFILE
-# Written by deploy/install.sh. Everything here stays on this machine.
-
-# PostgreSQL on this server, reachable from this server only.
-DATABASE_URL=$DATABASE_URL
-
-# Signs the sign-in tokens. Changing it signs everybody out; it does not
-# touch anybody's password.
-JWT_SECRET=$JWT_SECRET
-JWT_HOURS=12
-
-# One process serves both the browser app and the API, so there is no other
-# origin to allow and CORS never enters into it.
-CORS_ORIGINS=
-
-# How often the rebuild timer looks for a cycle that is due. 0 turns it off.
-AUTO_BUILD_TICK_SECONDS=60
-ENVFILE
+  # Both values are URL-safe base64, so neither can contain the | delimiter.
+  sed -e "s|^DATABASE_URL=.*|DATABASE_URL=$DATABASE_URL|" \
+      -e "s|^JWT_SECRET=.*|JWT_SECRET=$JWT_SECRET|" \
+      "$SRC_DIR/deploy/.env.production.example" > "$ENV_FILE"
 fi
 chmod 600 "$ENV_FILE"
 chown "$APP_USER:$APP_USER" "$ENV_FILE"
@@ -162,8 +162,7 @@ sudo -u "$APP_USER" "$APP_DIR/backend/.venv/bin/pip" install -q -r "$APP_DIR/bac
 # 7. Build the browser app
 # --------------------------------------------------------------------------- #
 say "Building the browser app"
-sudo -u "$APP_USER" env HOME="$APP_DIR" sh -c "cd \"$APP_DIR/frontend\" && npm ci --no-audit --no-fund && npm run build"
-[ -f "$APP_DIR/frontend/dist/index.html" ] || die "The frontend build produced no dist/index.html."
+build_frontend
 
 # --------------------------------------------------------------------------- #
 # 8. Create the tables before anything serves traffic
@@ -192,13 +191,7 @@ systemctl restart bd-dispatch
 # 10. nginx, so the link has no port number in it
 # --------------------------------------------------------------------------- #
 say "Putting nginx in front"
-sed -e "s|@API_PORT@|$API_PORT|g" -e "s|@HTTP_PORT@|$HTTP_PORT|g" \
-    "$APP_DIR/deploy/nginx-bd-dispatch.conf" > /etc/nginx/sites-available/bd-dispatch
-ln -sf /etc/nginx/sites-available/bd-dispatch /etc/nginx/sites-enabled/bd-dispatch
-rm -f /etc/nginx/sites-enabled/default
-nginx -t >/dev/null
-systemctl enable nginx >/dev/null 2>&1 || true
-systemctl reload nginx
+render_nginx
 
 # --------------------------------------------------------------------------- #
 # 11. Firewall, and a name on the network
@@ -206,7 +199,10 @@ systemctl reload nginx
 if ufw status 2>/dev/null | grep -q "Status: active"; then
   ufw allow "$HTTP_PORT/tcp" >/dev/null || true
 fi
-hostnamectl set-hostname "$HOSTNAME_LOCAL" >/dev/null 2>&1 || true
+if [ -n "$HOSTNAME_LOCAL" ]; then
+  hostnamectl set-hostname "$HOSTNAME_LOCAL" >/dev/null 2>&1 || true
+fi
+HOSTNAME_LOCAL="$(hostname -s)"
 systemctl enable --now avahi-daemon >/dev/null 2>&1 || true
 
 # --------------------------------------------------------------------------- #
@@ -238,7 +234,7 @@ cat <<DONE
   Next, one of these:
 
     Bring your Neon data over
-        sudo bash $APP_DIR/deploy/migrate-from-neon.sh "postgresql://...neon..."
+        sudo bash $APP_DIR/deploy/migrate-from-neon.sh /path/to/old.env
 
     Or start empty, with one manager account
         sudo bash $APP_DIR/deploy/create-manager.sh you@yourcompany.com

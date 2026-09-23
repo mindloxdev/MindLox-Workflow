@@ -17,7 +17,7 @@ nothing to keep signed in to.
 ## What you need
 
 - A Linux machine on the same network as your team. Debian 12 or Ubuntu 22.04 /
-  24.04. A mini-PC, an old desktop or a VM all work — this is a small app for a
+  24.04 / 26.04. A mini-PC, an old desktop or a VM all work — this is a small app for a
   team of 10–15, not a busy website. 2 GB of RAM is enough; 4 GB is comfortable.
 - That machine left switched on. When it sleeps, the app is gone and so are the
   rebuild timers.
@@ -81,11 +81,38 @@ To put it somewhere else, or on a different port:
 sudo APP_DIR=/srv/dispatch HTTP_PORT=8080 bash deploy/install.sh
 ```
 
+It leaves the machine's name alone, so the friendly link is
+`http://<its current name>.local`. To rename it to `dispatch` on the way
+through, and get `http://dispatch.local`:
+
+```bash
+sudo HOSTNAME_LOCAL=dispatch bash deploy/install.sh
+```
+
+A PostgreSQL that is already installed, 17 or newer, is used as it is rather
+than having a second one installed beside it.
+
+Likewise Node: one already in the checkout owner's `~/.nvm`, or on the PATH,
+22 or newer, builds the browser app. The build runs as that owner (a home
+directory is closed to the `dispatch` account) into a scratch folder, and is
+only swapped into `/opt` once it has succeeded.
+
+The production `backend/.env` is written from `deploy/.env.production.example`
+with a generated database password and `JWT_SECRET`. Read that file for what
+each setting does.
+
 ## 4. Bring your data over from Neon
 
-Your current `backend/.env` on Windows points at Neon. The connection string in
-it is what this needs — quote it, because it contains characters the shell
-would otherwise eat:
+Put the old `.env` that points at Neon somewhere on the server (the repo root
+is fine -- `*.env` is git-ignored and never copied into `/opt`), and hand it
+to the migration. Only its `DATABASE_URL` line is read:
+
+```bash
+sudo bash deploy/migrate-from-neon.sh MindLox-Ai.env
+```
+
+Or give the connection string itself, quoted, since it contains characters the
+shell would otherwise eat:
 
 ```bash
 sudo bash deploy/migrate-from-neon.sh "postgresql://user:pass@ep-xxxx-pooler.region.aws.neon.tech/neondb?sslmode=require"
@@ -151,9 +178,12 @@ old version running rather than taking the team down.
 
 ### Restoring a backup
 
+The backup folder is readable by root only, so the file is read with `sudo cat`
+and piped in -- `postgres` cannot open a path in there itself.
+
 ```bash
 sudo systemctl stop bd-dispatch
-sudo -u postgres pg_restore --clean --if-exists -d dispatch /var/backups/bd-dispatch/dispatch-YYYYMMDD-HHMMSS.dump
+sudo cat /var/backups/bd-dispatch/dispatch-YYYYMMDD-HHMMSS.dump | sudo -u postgres pg_restore --clean --if-exists -d dispatch
 sudo systemctl start bd-dispatch
 ```
 
@@ -190,12 +220,17 @@ machine at all.
 | File | What it is |
 |---|---|
 | `install.sh` | The whole first-time setup. Re-runnable. |
+| `lib.sh` | What install and update share: what not to copy, and the frontend build. |
+| `.env.production.example` | The production settings, with what each one does. |
 | `migrate-from-neon.sh` | Copies Neon into the local database and checks the counts. |
 | `create-manager.sh` | The first manager account, when starting empty. |
+| `enable-https.sh` | The Let's Encrypt certificate, and https at your domain. |
 | `update.sh` | Ship a code change. Backs up first, refuses to break the running app. |
 | `backup.sh` | One dump. Run by the nightly timer, or by hand. |
 | `bd-dispatch.service` | The systemd unit. Restarts on crash, starts on boot. |
-| `nginx-bd-dispatch.conf` | Port 80, upload size, timeouts, asset caching. |
+| `nginx-bd-dispatch.conf` | The plain-http site, while there is no domain. |
+| `nginx-bd-dispatch-ssl.conf` | The https site: redirect on 80, TLS on 443. |
+| `nginx-bd-dispatch-app.conf` | What both do with a request: upload size, timeouts, sign-in limit, caching. |
 | `bd-dispatch-backup.{service,timer}` | The nightly dump. |
 
 ---
@@ -230,26 +265,64 @@ that the app gets to give the clearer message.
 
 **Building a cycle times out in the browser.** nginx waits 5 minutes. If you
 have genuinely outgrown that, raise `proxy_read_timeout` in
-`/etc/nginx/sites-available/bd-dispatch` and `sudo systemctl reload nginx`.
+`deploy/nginx-bd-dispatch-app.conf` and run `sudo bash deploy/update.sh`.
 
 ---
 
-## A word on HTTPS
+## HTTPS at a real domain
 
-This runs over plain HTTP. On a network you control, between machines you own,
-that is a reasonable place to stop — and it is why the app is not exposed to
-the internet.
+Needed as soon as anyone reaches this from outside the office. It is also
+worth having inside: without it, sign-in tokens cross the network in the clear.
 
-It is worth knowing what you are accepting: sign-in tokens are in
-`sessionStorage` and travel in the clear, so anyone who can watch traffic on
-your LAN can take one. On an office network with a password on the wifi, that
-is a small risk. On shared or public wifi it is not.
+**Before you start** -- two things only you can do:
 
-If you want it closed anyway, the two ways that work on a local network are a
-certificate from your own internal CA, or a real domain with a DNS-01
-Let's Encrypt certificate pointed at the private IP. Both are an afternoon's
-work and neither requires exposing the server. Ask when you want to do it.
+1. **DNS.** An `A` record for the name (say `server.mindlox.io`) pointing at
+   your office's public IP. `curl -4 ifconfig.me` on the server shows it.
+2. **The router.** Forward TCP **80** and **443** to this server's LAN address
+   (step 1 above). Let's Encrypt proves you own the domain by fetching a file
+   over port 80 *from the internet*, at issue and at every renewal, so 80 has
+   to stay forwarded for good -- not just the first time.
 
-**Do not port-forward this to the internet.** If people need it from outside
-the office, put them on a VPN (WireGuard or Tailscale) — the server stays
-exactly as it is, and the link keeps working unchanged.
+   If your router's own admin page answers on the public IP, that is what
+   these forwards replace. Check that it is not also exposed some other way.
+
+**Then:**
+
+```bash
+sudo bash deploy/update.sh                      # puts the https templates in /opt
+sudo bash deploy/enable-https.sh server.mindlox.io you@yourcompany.com
+```
+
+It installs certbot, rehearses against Let's Encrypt's staging server (so a
+port that is not forwarded yet does not use up the real one's 5-failures-an-hour
+limit), gets the certificate, and switches nginx over. The email is optional;
+Let's Encrypt uses it only to warn you if a certificate is about to expire.
+
+What changes:
+
+- `https://server.mindlox.io` is the link, in the office and out. `http://`,
+  the LAN IP and `server.local` all redirect to it, so nobody gets a
+  certificate warning for using the "wrong" address.
+- `DOMAIN` and `CERTBOT_EMAIL` are written to `backend/.env`. `install.sh` and
+  `update.sh` read `DOMAIN` from there and keep https on when re-run -- nothing
+  edits the live nginx config by hand, certbot included.
+- Sign-in is rate-limited by nginx: a burst of 5, then 10 a minute per
+  address, and `429` past that. The app itself does not limit attempts.
+
+**Renewal** is automatic. The certbot package's `certbot.timer` runs twice a
+day, renews within 30 days of expiry, and reloads nginx afterwards.
+
+```bash
+systemctl list-timers certbot.timer      # when it next runs
+sudo certbot certificates                # what is issued, and until when
+sudo certbot renew --dry-run             # rehearse a renewal now
+```
+
+**Inside the office, the link does not load but works from a phone on
+mobile data.** Your router does not do "NAT loopback" (sending the office's
+own traffic for its public IP back inside). Point the name at the LAN address
+in the router's local DNS -- `server.mindlox.io -> 192.168.1.99` -- or ask
+whoever runs your network to.
+
+**Going back to LAN-only:** delete the `DOMAIN=` line from `backend/.env`,
+run `sudo bash deploy/update.sh`, and remove the router's port forwards.
