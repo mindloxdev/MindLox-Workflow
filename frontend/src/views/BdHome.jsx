@@ -24,6 +24,28 @@ const FIELD_LABELS = {
   description_url: "Job description link",
 };
 
+// The reasons that come up again and again, offered as one tap so the manager's
+// report groups them under the same words. Anything else is still written out
+// in the box, and a picked reason can have a detail added after it.
+const SKIP_REASONS = [
+  "Already Applied",
+  "Job expired",
+  "Website error",
+  "Travel Required",
+  "Onsite",
+  "Hybrid",
+  "Certification Required",
+  "Life insurance",
+  "Sales",
+];
+
+/** Which listed reason the text starts with, if any. */
+const pickedReason = (text) => {
+  const t = text.trim().toLowerCase();
+  return SKIP_REASONS.find((r) => t.startsWith(r.toLowerCase())
+    && !/[a-z0-9]/.test(t.charAt(r.length))) || null;
+};
+
 export default function BdHome({ pane = null, onPaneSeen }) {
   const [batches, setBatches] = useState([]);
   const [batchId, setBatchId] = useState(null);
@@ -238,6 +260,17 @@ export default function BdHome({ pane = null, onPaneSeen }) {
     mark(job.id, status);
   };
 
+  /** Tapping a reason swaps it in for the one already picked, keeping any
+   *  detail written after it; tapping the picked one again takes it off. */
+  const pickReason = (reason) => setSkipReason((now) => {
+    const current = pickedReason(now);
+    const rest = current
+      ? now.trim().slice(current.length).replace(/^\s*[—:-]?\s*/, "")
+      : now.trim();
+    if (current === reason) return rest;
+    return rest ? `${reason} — ${rest}` : reason;
+  });
+
   const confirmSkip = async () => {
     const reason = skipReason.trim();
     if (!reason) return;
@@ -377,12 +410,24 @@ export default function BdHome({ pane = null, onPaneSeen }) {
               Skipping retires {skipping.ids.length > 1 ? "them" : "it"} from{" "}
               {profile?.name} for good — {skipping.ids.length > 1 ? "they" : "it"} will
               not come back in a later cycle. Your manager reads these to see whether
-              the searches feeding this profile are landing, so a few words is enough:
-              wrong seniority, on-site only, rate too low, client already approached.
+              the searches feeding this profile are landing, so pick a reason below
+              or write your own in a few words.
             </p>
           </div>
+          <div className="row" role="group" aria-label="Common reasons"
+               style={{ gap: 6, flexWrap: "wrap" }}>
+            {SKIP_REASONS.map((r) => {
+              const on = pickedReason(skipReason) === r;
+              return (
+                <button key={r} type="button" className="pill" aria-pressed={on}
+                        onClick={() => pickReason(r)}>
+                  {r}
+                </button>
+              );
+            })}
+          </div>
           <textarea rows={3} autoFocus value={skipReason}
-                    placeholder="Wrong seniority — this one wants 10 years."
+                    placeholder="Or write your own — wrong seniority, this one wants 10 years."
                     onChange={(e) => setSkipReason(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) confirmSkip();

@@ -752,6 +752,13 @@ button.pill:hover:not(:disabled) {
   color: var(--a-text);
   background: var(--a-soft);
 }
+button.pill[aria-pressed="true"],
+button.pill[aria-pressed="true"]:hover:not(:disabled) {
+  border-color: var(--a);
+  color: var(--a-text);
+  background: var(--a-soft);
+  font-weight: 600;
+}
 
 .notice {
   display: block;
