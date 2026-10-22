@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS profiles (
     rate           VARCHAR(40)  NOT NULL DEFAULT '',
     availability   VARCHAR(16)  NOT NULL DEFAULT 'open',
     bio            TEXT         NOT NULL DEFAULT '',
+    -- Three reference slots: two a client always asks for, one spare.
+    job_references JSON,
 
     created_at     TIMESTAMP DEFAULT (now() AT TIME ZONE 'utc'),
     CONSTRAINT ck_profiles_availability

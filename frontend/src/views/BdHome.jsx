@@ -7,7 +7,8 @@ import Interviews from "./Interviews.jsx";
 import JobRecord from "./JobRecord.jsx";
 import { ActionList, bdTodo } from "./Todo.jsx";
 import {
-  Availability, CopyButton, CycleClock, CyclePicker, Empty, Segment, Skills, useModalFocus,
+  Availability, CopyButton, CycleClock, CyclePicker, Empty, References, Segment, Skills,
+  useModalFocus,
 } from "./widgets.jsx";
 
 const FIELD_LABELS = {
@@ -586,6 +587,8 @@ export default function BdHome({ pane = null, onPaneSeen }) {
 
             {profile.skills && <Skills value={profile.skills} />}
             {profile.bio && <p className="muted" style={{ maxWidth: 760 }}>{profile.bio}</p>}
+
+            <References rows={profile.references} who={profile.developer || ""} />
 
             {profile.availability === "booked" && (
               <div className="notice">

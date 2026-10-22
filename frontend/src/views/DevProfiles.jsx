@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api.js";
-import { Availability, CopyButton, Skills } from "./widgets.jsx";
+import {
+  Availability, CopyButton, ReferencesEditor, Skills, referenceSlots, sameReferences,
+} from "./widgets.jsx";
 
 /** What a client is handed when the team applies as you.
  *
@@ -40,7 +42,7 @@ export default function DevProfiles() {
       setDrafts(Object.fromEntries(rows.map((p) => [p.id, {
         email: p.email || "", resume_url: p.resume_url || "", skills: p.skills || "",
         rate: p.rate || "", timezone: p.timezone || "", bio: p.bio || "",
-        availability: p.availability || "open",
+        availability: p.availability || "open", references: referenceSlots(p.references),
       }])));
     } catch (err) {
       setNote({ bad: true, text: err.message });
@@ -83,7 +85,8 @@ export default function DevProfiles() {
   const dirty = (p) => {
     const draft = drafts[p.id] || {};
     return FIELDS.some((f) => (draft[f.key] || "") !== (p[f.key] || ""))
-      || (draft.bio || "") !== (p.bio || "");
+      || (draft.bio || "") !== (p.bio || "")
+      || !sameReferences(draft.references, p.references);
   };
 
   if (!profiles.length) {
@@ -171,6 +174,16 @@ export default function DevProfiles() {
               </p>
             </div>
 
+            <div className="stack" style={{ gap: 6 }}>
+              <h3>References</h3>
+              <p className="muted" style={{ fontSize: 11.5 }}>
+                Who a client can call about you. The first two are the ones clients ask
+                for; the third is optional.
+              </p>
+              <ReferencesEditor idPrefix={`ref-${profile.id}`} value={draft.references}
+                                onChange={(rows) => set("references", rows)} />
+            </div>
+
             {profile.skills && (
               <div className="row" style={{ gap: 8 }}>
                 <span className="muted">reads as</span>
@@ -191,6 +204,7 @@ export default function DevProfiles() {
                       skills: profile.skills || "", rate: profile.rate || "",
                       timezone: profile.timezone || "", bio: profile.bio || "",
                       availability: profile.availability || "open",
+                      references: referenceSlots(profile.references),
                     },
                   }))}>Undo</button>
                 )}

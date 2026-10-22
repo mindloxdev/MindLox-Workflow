@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api, safeUrl } from "../api.js";
-import { Availability } from "./widgets.jsx";
+import { Availability, ReferencesEditor, referenceSlots } from "./widgets.jsx";
 
 const BLANK_PERSON = { name: "", email: "", password: "", role: "bd" };
 const BLANK_PROFILE = {
@@ -159,6 +159,24 @@ export default function People() {
       setProfile(BLANK_PROFILE);
       await load();
       setNote({ text: `${made.name} is ready. Whoever runs it can hand in a sheet for it.` });
+    } catch (err) {
+      setNote({ bad: true, text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // One profile's references open for editing at a time, under its row.
+  const [refs, setRefs] = useState(null);
+
+  const saveReferences = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      await api.updateProfile(refs.id, { references: refs.rows });
+      await load();
+      setNote({ text: `References saved for ${refs.name}. Their BD sees them on their own screen.` });
+      setRefs(null);
     } catch (err) {
       setNote({ bad: true, text: err.message });
     } finally {
@@ -383,12 +401,14 @@ export default function People() {
             <tr><th>Profile</th><th>Headline</th><th>Run by</th>
                 <th title="The person the client would actually be meeting">Developer</th>
                 <th title="What a BD attaches when applying under this profile">Resume</th>
+                <th title="Two main references and one optional">References</th>
                 <th title="Whether this profile appears on the shared team board">On the board</th>
                 <th /></tr>
           </thead>
           <tbody>
             {profiles.map((item) => (
-              <tr key={item.id}>
+              <React.Fragment key={item.id}>
+              <tr>
                 <td style={{ fontWeight: 500 }}>
                   {item.name}
                   {item.platform && (
@@ -423,6 +443,18 @@ export default function People() {
                         not set
                       </span>}
                 </td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  {(() => {
+                    const filled = referenceSlots(item.references).filter((r) => r.name.trim()).length;
+                    return <span className={filled >= 2 ? "" : "muted"}>{filled} of 3</span>;
+                  })()}
+                  <button className="link" style={{ marginLeft: 8 }}
+                          onClick={() => setRefs(refs?.id === item.id ? null : {
+                            id: item.id, name: item.name, rows: referenceSlots(item.references),
+                          })}>
+                    {refs?.id === item.id ? "close" : "edit"}
+                  </button>
+                </td>
                 <td>
                   <label className="row" style={{ gap: 6 }}>
                     <input type="checkbox" checked={item.share_progress !== false}
@@ -437,9 +469,24 @@ export default function People() {
                           onClick={() => deleteProfile(item)}>Delete</button>
                 </td>
               </tr>
+              {refs?.id === item.id && (
+                <tr>
+                  <td colSpan={8}>
+                    <div className="stack" style={{ gap: 10, padding: "6px 0" }}>
+                      <ReferencesEditor idPrefix={`mref-${item.id}`} value={refs.rows}
+                                        onChange={(rows) => setRefs({ ...refs, rows })} />
+                      <div className="row" style={{ gap: 10 }}>
+                        <button onClick={saveReferences} disabled={busy}>Save references</button>
+                        <button className="link" onClick={() => setRefs(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </React.Fragment>
             ))}
             {!profiles.length && (
-              <tr><td colSpan={7} className="muted">
+              <tr><td colSpan={8} className="muted">
                 No profiles yet. Nobody can hand in a sheet until there is at least one.
               </td></tr>
             )}

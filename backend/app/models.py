@@ -258,6 +258,10 @@ class Profile(Base):
     rate = Column(String(40), nullable=False, default="")
     availability = Column(String(16), nullable=False, default="open")
     bio = Column(Text, nullable=False, default="")
+    # The people a client may call about this candidate. Three slots in order:
+    # the first two are the ones every client asks for, the third is a spare.
+    # Not `references` — that is a reserved word in SQL.
+    job_references = Column(JSON, default=list)
 
     created_at = Column(DateTime, default=utcnow)
 

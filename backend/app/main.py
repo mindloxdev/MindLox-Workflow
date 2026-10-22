@@ -239,7 +239,15 @@ def visible_profile_ids(db: Session, user: User) -> Optional[list[int]]:
 # The developer keeps these current themselves; everything else about a profile
 # — its name, who runs it, whether it is on the team board — is the manager's.
 DEV_EDITABLE = ("email", "resume_url", "skills", "timezone", "rate",
-                "availability", "bio")
+                "availability", "bio", "references")
+
+# A profile carries three reference slots. The first two are the ones a client
+# asks for before an offer; the third is a spare, and nothing is missing
+# without it.
+REFERENCE_SLOTS = 3
+REQUIRED_REFERENCES = 2
+REFERENCE_FIELDS = {"name": 120, "relation": 120, "company": 120,
+                    "email": 255, "phone": 40}
 
 
 def _check_availability(value: str) -> str:
@@ -254,6 +262,38 @@ def _check_email(value: str) -> str:
     if cleaned and "@" not in cleaned:
         raise HTTPException(400, "That does not look like an email address.")
     return cleaned[:255]
+
+
+def _blank_reference() -> dict:
+    return {key: "" for key in REFERENCE_FIELDS}
+
+
+def references_out(stored) -> list[dict]:
+    """Always exactly three slots, in order, whatever is stored.
+
+    A slot keeps its place even when it is empty, so the spare never slides up
+    into a main slot because the second was cleared.
+    """
+    rows = stored if isinstance(stored, list) else []
+    out = []
+    for i in range(REFERENCE_SLOTS):
+        row = rows[i] if i < len(rows) and isinstance(rows[i], dict) else {}
+        out.append({key: str(row.get(key) or "") for key in REFERENCE_FIELDS})
+    return out
+
+
+def _check_references(value: list) -> list[dict]:
+    if len(value) > REFERENCE_SLOTS:
+        raise HTTPException(400, f"A profile holds {REFERENCE_SLOTS} references at most.")
+    cleaned = []
+    for i, row in enumerate(references_out(value), start=1):
+        row = {key: row[key].strip()[:limit] for key, limit in REFERENCE_FIELDS.items()}
+        if row["email"]:
+            row["email"] = _check_email(row["email"])
+        if any(row.values()) and not row["name"]:
+            raise HTTPException(400, f"Reference {i} needs a name.")
+        cleaned.append(row)
+    return cleaned
 
 
 def _check_link(value: str, what: str) -> str:
@@ -341,6 +381,7 @@ class ProfileIn(BaseModel):
     rate: str = ""
     availability: str = "open"
     bio: str = ""
+    references: list[dict] = []
 
 
 class ProfilePatch(BaseModel):
@@ -357,6 +398,7 @@ class ProfilePatch(BaseModel):
     rate: Optional[str] = None
     availability: Optional[str] = None
     bio: Optional[str] = None
+    references: Optional[list[dict]] = None
 
 
 class InterviewIn(BaseModel):
@@ -596,6 +638,7 @@ def profile_json(p: Profile, owner: Optional[User] = None,
             "rate": p.rate or "",
             "availability": p.availability or "open",
             "bio": p.bio or "",
+            "references": references_out(p.job_references),
             "label": p.name if not p.headline else f"{p.name} · {p.headline}"}
 
 
@@ -904,7 +947,8 @@ def create_profile(body: ProfileIn, db: Session = Depends(get_db),
                       timezone=body.timezone.strip()[:64],
                       rate=body.rate.strip()[:40],
                       availability=_check_availability(body.availability),
-                      bio=body.bio.strip())
+                      bio=body.bio.strip(),
+                      job_references=_check_references(body.references))
     db.add(profile)
     db.commit()
     return profile_json(profile,
@@ -936,7 +980,7 @@ def update_profile(profile_id: int, body: ProfilePatch, db: Session = Depends(ge
             raise HTTPException(
                 403, f"Only a manager can change {', '.join(beyond)}. "
                      "Your own details — email, resume, skills, rate, timezone, "
-                     "availability — are yours to keep current.")
+                     "availability, references — are yours to keep current.")
 
     if body.name is not None:
         name = body.name.strip()
@@ -972,6 +1016,8 @@ def update_profile(profile_id: int, body: ProfilePatch, db: Session = Depends(ge
         profile.availability = _check_availability(body.availability)
     if body.bio is not None:
         profile.bio = body.bio.strip()
+    if body.references is not None:
+        profile.job_references = _check_references(body.references)
     db.commit()
     return profile_json(profile,
                         db.get(User, profile.user_id) if profile.user_id else None,

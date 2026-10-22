@@ -96,6 +96,9 @@ LATER_COLUMNS = {
         ("rate", "VARCHAR(40) DEFAULT ''"),
         ("availability", "VARCHAR(16) DEFAULT 'open'"),
         ("bio", "TEXT DEFAULT ''"),
+        # v3.2 — the references a client calls. NULL on every existing row,
+        # which the app reads as three empty slots: nobody was asked yet.
+        ("job_references", "JSON"),
     ],
     # v2.3 — the developer's half of an interview. `notes` was always the BD's
     # brief; these are what the person who sat the call says afterwards, and

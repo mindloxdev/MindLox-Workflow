@@ -1092,6 +1092,114 @@ export function CopyButton({ value, label = "copy" }) {
   return <button className="link" onClick={copy}>{done ? "copied" : label}</button>;
 }
 
+/** The three reference slots a profile carries, in order.
+ *
+ * The first two are the ones a client asks for before an offer; the third is
+ * a spare. A slot keeps its number even when empty, so "Reference 3" always
+ * means the optional one.
+ */
+export const REFERENCE_SLOTS = [
+  { label: "Reference 1", required: true },
+  { label: "Reference 2", required: true },
+  { label: "Reference 3", required: false },
+];
+
+export const BLANK_REFERENCE = { name: "", relation: "", company: "", email: "", phone: "" };
+
+export function referenceSlots(rows) {
+  return REFERENCE_SLOTS.map((_, i) => ({ ...BLANK_REFERENCE, ...((rows || [])[i] || {}) }));
+}
+
+/** Read-only: what a BD hands a client who asks who they can call. */
+export function References({ rows, who = "" }) {
+  const slots = referenceSlots(rows);
+  const missing = slots.filter((r, i) => REFERENCE_SLOTS[i].required && !r.name).length;
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      <div className="row" style={{ gap: 8 }}>
+        <h3>References</h3>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {slots.filter((r) => r.name).length} of 3 · two main, one optional
+        </span>
+      </div>
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 10 }}>
+        {slots.map((ref, i) => (
+          <div key={i} className="card pad" style={{ padding: 10 }}>
+            <div className="row" style={{ gap: 6, justifyContent: "space-between" }}>
+              <span className="muted" style={{ fontSize: 11.5 }}>{REFERENCE_SLOTS[i].label}</span>
+              <span className="pill">{REFERENCE_SLOTS[i].required ? "main" : "optional"}</span>
+            </div>
+            {ref.name ? (
+              <div className="stack" style={{ gap: 3, marginTop: 6, fontSize: 12.5 }}>
+                <b>{ref.name}</b>
+                {(ref.relation || ref.company) && (
+                  <span className="muted">
+                    {[ref.relation, ref.company].filter(Boolean).join(" · ")}
+                  </span>
+                )}
+                {ref.email && (
+                  <span className="row" style={{ gap: 6 }}>
+                    <span className="mono" style={{ fontSize: 12 }}>{ref.email}</span>
+                    <CopyButton value={ref.email} />
+                  </span>
+                )}
+                {ref.phone && (
+                  <span className="row" style={{ gap: 6 }}>
+                    <span className="mono" style={{ fontSize: 12 }}>{ref.phone}</span>
+                    <CopyButton value={ref.phone} />
+                  </span>
+                )}
+              </div>
+            ) : (
+              <p style={{ marginTop: 6, fontSize: 12,
+                          color: REFERENCE_SLOTS[i].required ? "var(--bad-text)" : undefined }}
+                 className={REFERENCE_SLOTS[i].required ? "" : "muted"}>
+                {REFERENCE_SLOTS[i].required ? "not set" : "none — that is fine"}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+      {missing > 0 && who && (
+        <p className="hint">{who} adds references on their own screen.</p>
+      )}
+    </div>
+  );
+}
+
+/** Three slots of inputs. `value` is the list; `onChange` gets the new list. */
+export function ReferencesEditor({ value, onChange, idPrefix = "ref" }) {
+  const slots = referenceSlots(value);
+  const set = (i, key, v) =>
+    onChange(slots.map((row, j) => (j === i ? { ...row, [key]: v } : row)));
+  return (
+    <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))" }}>
+      {slots.map((ref, i) => (
+        <div key={i} className="stack" style={{ gap: 6 }}>
+          <label htmlFor={`${idPrefix}-${i}-name`}>
+            {REFERENCE_SLOTS[i].label}{" "}
+            <span className="muted">({REFERENCE_SLOTS[i].required ? "main" : "optional"})</span>
+          </label>
+          <input id={`${idPrefix}-${i}-name`} placeholder="Full name" value={ref.name}
+                 onChange={(e) => set(i, "name", e.target.value)} />
+          <input placeholder="Role / how they know you" value={ref.relation}
+                 onChange={(e) => set(i, "relation", e.target.value)} />
+          <input placeholder="Company" value={ref.company}
+                 onChange={(e) => set(i, "company", e.target.value)} />
+          <input placeholder="Email" type="email" value={ref.email}
+                 onChange={(e) => set(i, "email", e.target.value)} />
+          <input placeholder="Phone" value={ref.phone}
+                 onChange={(e) => set(i, "phone", e.target.value)} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function sameReferences(a, b) {
+  return JSON.stringify(referenceSlots(a)) === JSON.stringify(referenceSlots(b));
+}
+
 /** Applications in, interviews out, offers at the end of it.
  *
  * Drawn as steps rather than a funnel shape on purpose. A real funnel encodes

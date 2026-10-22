@@ -322,6 +322,32 @@ def test_a_developer_keeps_their_own_details_current(client, one, make_profile):
     assert saved["skills"] == "Python, RAG, AWS"
 
 
+def test_a_profile_carries_three_reference_slots_and_the_bd_reads_them(
+        client, one, bd, make_profile):
+    """Two main references and a spare. A slot keeps its place when empty, so
+    the optional third never slides up into a main slot."""
+    profile = make_profile()
+    assert client.get(f"/api/profiles/{profile['id']}", headers=bd).json()["references"] \
+        == [{"name": "", "relation": "", "company": "", "email": "", "phone": ""}] * 3
+
+    saved = client.patch(f"/api/profiles/{profile['id']}", headers=one, json={
+        "references": [{"name": " Sara Khan ", "relation": "Manager", "phone": "+1 555"},
+                       {},
+                       {"name": "Ali Raza", "email": "ali@example.com"}],
+    })
+    assert saved.status_code == 200, saved.text
+    refs = client.get(f"/api/profiles/{profile['id']}", headers=bd).json()["references"]
+    assert [r["name"] for r in refs] == ["Sara Khan", "", "Ali Raza"]
+    assert refs[0]["relation"] == "Manager"
+
+    nameless = client.patch(f"/api/profiles/{profile['id']}", headers=one,
+                            json={"references": [{"email": "x@example.com"}]})
+    assert nameless.status_code == 400
+    too_many = client.patch(f"/api/profiles/{profile['id']}", headers=one,
+                            json={"references": [{"name": "a"}] * 4})
+    assert too_many.status_code == 400
+
+
 def test_a_developer_cannot_rename_the_identity_or_hand_it_on(client, one, people,
                                                               make_profile):
     """The name and the owner decide what other people see, so they stay with
